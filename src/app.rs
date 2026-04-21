@@ -22,6 +22,7 @@ pub enum Screen {
     Help,
     Generate,
     DeleteConfirm,
+    ConfigWizard,
 }
 
 pub struct App {
@@ -37,6 +38,7 @@ pub struct App {
     pub generate: Option<GenerateSubstate>,
     pub config: Config,
     pub delete_confirming: Option<String>,
+    pub config_wizard: Option<crate::ui::config_wizard::WizardState>,
 }
 
 impl App {
@@ -61,7 +63,15 @@ impl App {
             generate: None,
             config,
             delete_confirming: None,
+            config_wizard: None,
         }
+    }
+
+    pub fn open_wizard(&mut self, origin: crate::ui::config_wizard::WizardOrigin) {
+        use crate::ui::config_wizard::WizardState;
+        let state = WizardState::new(origin, self.config.clone());
+        self.config_wizard = Some(state);
+        self.screen = Screen::ConfigWizard;
     }
 
     pub fn on_tick(&mut self) {
@@ -80,6 +90,7 @@ impl App {
                 Screen::Help => self.handle_help_key(key),
                 Screen::Generate => self.handle_generate_key(key),
                 Screen::DeleteConfirm => self.handle_delete_confirm_key(key),
+                Screen::ConfigWizard => self.handle_config_wizard_key(key),
             },
             Event::Paste(text) => {
                 if let Screen::Generate = self.screen {
@@ -486,7 +497,14 @@ impl App {
                     render_delete_confirm(frame, title);
                 }
             }
+            Screen::ConfigWizard => {
+                // render added in Task 6
+            }
         }
+    }
+
+    fn handle_config_wizard_key(&mut self, _key: KeyEvent) {
+        // Implemented in Task 5
     }
 }
 
