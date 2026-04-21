@@ -101,7 +101,9 @@ impl App {
             }
         };
         self.study.progress_mut().active_course_id = Some(new_id);
-        let _ = self.study.progress().save(&self.data_paths.progress_file);
+        if let Err(e) = self.study.progress().save(&self.data_paths.progress_file) {
+            eprintln!("Failed to save progress after switch: {e}");
+        }
         let progress = self.study.progress().clone();
         self.study = crate::ui::study::StudyState::new(Some(course), progress);
         self.course_list = None;
