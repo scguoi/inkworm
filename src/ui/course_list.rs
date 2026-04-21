@@ -115,7 +115,9 @@ fn format_row(item: &CourseListItem, active: bool, selected: bool, width: u16) -
         (marker.chars().count() + progress_txt.chars().count() + date_txt.chars().count() + 4)
             as u16;
     let available = width.saturating_sub(reserved) as usize;
-    let shown_title = if title.chars().count() > available && available > 1 {
+    // NOTE: `chars().count()` counts Unicode code points, not display columns.
+    // CJK titles render wider than budgeted; follow-up in Plan 6+.
+    let shown_title = if title.chars().count() > available && available > 0 {
         let mut s: String = title.chars().take(available.saturating_sub(1)).collect();
         s.push('…');
         s
