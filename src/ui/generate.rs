@@ -120,3 +120,8 @@ mod tests {
         assert_eq!(state.text, "a");
     }
 }
+
+// Stub for Task 8
+pub fn render_generate(_frame: &mut ratatui::Frame, _state: &GenerateSubstate, _max_bytes: usize) {
+    // TODO: implement rendering
+}

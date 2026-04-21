@@ -108,6 +108,14 @@ impl StudyState {
         &self.progress
     }
 
+    pub fn progress_mut(&mut self) -> &mut Progress {
+        &mut self.progress
+    }
+
+    pub fn current_course(&self) -> Option<&Course> {
+        self.course.as_ref()
+    }
+
     pub fn type_char(&mut self, c: char) {
         if self.phase != StudyPhase::Active {
             return;
