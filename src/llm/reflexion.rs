@@ -126,7 +126,7 @@ use serde_json::json;
 use tokio::sync::Semaphore;
 
 use crate::llm::prompt::PHASE2_SYSTEM;
-use crate::llm::types::{RawDrill, RawDrills, RawSentence};
+use crate::llm::types::{RawDrills, RawSentence};
 
 impl<'a> Reflexion<'a> {
     /// Phase 2: expand ONE sentence into drills via LLM. Up to 3 repair attempts.
@@ -226,10 +226,6 @@ fn try_parse_and_validate_phase2(
     }
 }
 
-// Temporarily silence `unused import` for RawDrill until Task 8.1 uses it.
-#[allow(dead_code)]
-fn __keep_raw_drill_in_scope(_: RawDrill) {}
-
 /// Tolerate LLMs that wrap JSON in ```json ... ``` despite being told not to.
 fn strip_code_fences(s: &str) -> &str {
     let t = s.trim();
@@ -245,6 +241,216 @@ fn strip_code_fences(s: &str) -> &str {
             .unwrap_or(rest)
     } else {
         t
+    }
+}
+
+use chrono::DateTime;
+
+use crate::storage::course::{Course, Drill, Sentence, Source, SourceKind, SCHEMA_VERSION};
+
+/// Result of a successful `generate` run.
+#[derive(Debug, Clone)]
+pub struct ReflexionOutcome {
+    pub course: Course,
+    pub phase1_attempts: u32,
+    pub phase2_attempts: Vec<u32>,
+}
+
+/// Combine the Phase 1 header, per-sentence Phase 2 drills, and metadata into
+/// a fully populated `Course` struct (with program-filled `id`/`order`/`stage`/`source`).
+#[allow(clippy::too_many_arguments)]
+pub fn build_course(
+    sentences_raw: &[RawSentence],
+    drills_raw: &[RawDrills],
+    title: &str,
+    description: &str,
+    existing_ids: &[String],
+    model: &str,
+    now: DateTime<chrono::Utc>,
+) -> Course {
+    let sentences: Vec<Sentence> = sentences_raw
+        .iter()
+        .zip(drills_raw.iter())
+        .enumerate()
+        .map(|(i, (_s, rd))| Sentence {
+            order: (i as u32) + 1,
+            drills: rd
+                .drills
+                .iter()
+                .enumerate()
+                .map(|(j, d)| Drill {
+                    stage: (j as u32) + 1,
+                    focus: d.focus,
+                    chinese: d.chinese.clone(),
+                    english: d.english.clone(),
+                    soundmark: d.soundmark.clone(),
+                })
+                .collect(),
+        })
+        .collect();
+
+    let id = unique_id(&now, title, existing_ids);
+    Course {
+        schema_version: SCHEMA_VERSION,
+        id,
+        title: title.to_string(),
+        description: if description.is_empty() {
+            None
+        } else {
+            Some(description.to_string())
+        },
+        source: Source {
+            kind: SourceKind::Article,
+            url: String::new(),
+            created_at: now,
+            model: model.to_string(),
+        },
+        sentences,
+    }
+}
+
+/// Build a unique Course id of the form `YYYY-MM-DD-<slug(title)>`, appending
+/// `-2`, `-3`, ... if the computed id collides with an existing one.
+pub fn unique_id(now: &DateTime<chrono::Utc>, title: &str, existing: &[String]) -> String {
+    let base = format!("{}-{}", now.format("%Y-%m-%d"), slug(title));
+    if !existing.iter().any(|e| e == &base) {
+        return base;
+    }
+    for n in 2u32.. {
+        let candidate = format!("{base}-{n}");
+        if !existing.iter().any(|e| e == &candidate) {
+            return candidate;
+        }
+    }
+    unreachable!("u32 exhausted");
+}
+
+/// Turn a title into a kebab-case slug: lowercase ASCII + digits + '-',
+/// collapsing runs, trimming leading/trailing '-', capped at 40 chars, and
+/// guaranteed non-empty ("lesson" if the title yielded nothing usable).
+pub fn slug(title: &str) -> String {
+    let mut out = String::with_capacity(title.len());
+    let mut last_dash = true;
+    for c in title.chars() {
+        let mapped = if c.is_ascii_alphanumeric() {
+            Some(c.to_ascii_lowercase())
+        } else if c.is_whitespace() || c == '-' || c == '_' {
+            if last_dash {
+                None
+            } else {
+                Some('-')
+            }
+        } else {
+            None
+        };
+        if let Some(ch) = mapped {
+            out.push(ch);
+            last_dash = ch == '-';
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    if out.len() > 40 {
+        out.truncate(40);
+        while out.ends_with('-') {
+            out.pop();
+        }
+    }
+    if out.is_empty() {
+        out = "lesson".into();
+    }
+    out
+}
+
+#[cfg(test)]
+mod build_course_tests {
+    use super::*;
+    use crate::llm::types::RawDrill;
+    use chrono::TimeZone;
+
+    fn now() -> DateTime<chrono::Utc> {
+        chrono::Utc.with_ymd_and_hms(2026, 4, 21, 10, 0, 0).unwrap()
+    }
+
+    #[test]
+    fn slug_basic() {
+        assert_eq!(slug("Hello World"), "hello-world");
+        assert_eq!(slug("TED: What AI Means"), "ted-what-ai-means");
+        assert_eq!(slug("  trim me  "), "trim-me");
+    }
+
+    #[test]
+    fn slug_truncates_at_forty() {
+        let s = slug(&"a".repeat(100));
+        assert!(s.len() <= 40);
+    }
+
+    #[test]
+    fn slug_never_empty() {
+        assert_eq!(slug("   "), "lesson");
+        assert_eq!(slug("!!!"), "lesson");
+        assert_eq!(slug(""), "lesson");
+    }
+
+    #[test]
+    fn unique_id_appends_suffix_on_collision() {
+        let existing = vec!["2026-04-21-hello".into(), "2026-04-21-hello-2".into()];
+        let id = unique_id(&now(), "Hello", &existing);
+        assert_eq!(id, "2026-04-21-hello-3");
+    }
+
+    #[test]
+    fn build_course_passes_course_validate() {
+        use crate::storage::course::Focus;
+        let sentences: Vec<RawSentence> = (0..5)
+            .map(|i| RawSentence {
+                chinese: format!("句{i}"),
+                english: format!("sentence number {i} here"),
+            })
+            .collect();
+        let drills: Vec<RawDrills> = sentences
+            .iter()
+            .map(|s| RawDrills {
+                drills: vec![
+                    RawDrill {
+                        stage: 1,
+                        focus: Focus::Keywords,
+                        chinese: "关键".into(),
+                        english: "a b".into(),
+                        soundmark: "".into(),
+                    },
+                    RawDrill {
+                        stage: 2,
+                        focus: Focus::Skeleton,
+                        chinese: "骨架".into(),
+                        english: "a b c".into(),
+                        soundmark: "".into(),
+                    },
+                    RawDrill {
+                        stage: 3,
+                        focus: Focus::Full,
+                        chinese: "完整".into(),
+                        english: s.english.clone(),
+                        soundmark: "".into(),
+                    },
+                ],
+            })
+            .collect();
+        let c = build_course(
+            &sentences,
+            &drills,
+            "Test Title",
+            "",
+            &[],
+            "gpt-4o-mini",
+            now(),
+        );
+        let errs = c.validate();
+        assert!(errs.is_empty(), "{errs:#?}");
+        assert_eq!(c.id, "2026-04-21-test-title");
+        assert_eq!(c.description, None);
+        assert_eq!(c.sentences.len(), 5);
     }
 }
 
