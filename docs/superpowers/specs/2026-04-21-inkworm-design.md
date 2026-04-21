@@ -360,7 +360,7 @@ normalize(s):
   trim
   collapse consecutive whitespace → single space
   replace curly quotes ( ' ' " " ) with straight ( ' " )
-  strip trailing [.!?]（仅末尾一个字符，保留句内标点）
+  strip all trailing [.!?] and whitespace in a loop until stable（保留句内标点）
 ```
 
 **保留**：大小写、句内标点、缩写（`I've` 不等于 `I have`）、连字符。
