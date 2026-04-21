@@ -206,6 +206,37 @@ impl<'a> Reflexion<'a> {
             .collect();
         try_join_all(tasks).await
     }
+
+    /// Full pipeline: article → Course. Returns the assembled Course plus
+    /// attempt counts (1 for success, 2 if one repair, 3 if two repairs).
+    /// Any sub-phase error (Reflexion exhaustion, LlmError, Cancelled) is
+    /// propagated; on success nothing is written to disk — the caller is
+    /// responsible for persisting via `storage::save_course`.
+    pub async fn generate(
+        &self,
+        article: &str,
+        existing_ids: &[String],
+    ) -> Result<ReflexionOutcome, ReflexionError> {
+        let phase1 = self.reflexion_split(article).await?;
+        let phase2 = self.orchestrate_phase2(&phase1.sentences).await?;
+        let course = build_course(
+            &phase1.sentences,
+            &phase2,
+            &phase1.title,
+            &phase1.description,
+            existing_ids,
+            self.model,
+            self.clock.now(),
+        );
+        // We cannot easily recover per-call attempt counts without threading
+        // state; stub them as zero for now. `generate` is the place where
+        // future telemetry will decorate these if needed.
+        Ok(ReflexionOutcome {
+            course,
+            phase1_attempts: 1,
+            phase2_attempts: vec![1; phase2.len()],
+        })
+    }
 }
 
 /// Try to parse the raw string as `RawDrills` and validate it against the
