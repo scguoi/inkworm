@@ -4,6 +4,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::storage::atomic::write_atomic;
+
 pub const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -236,4 +238,86 @@ fn is_valid_soundmark(s: &str) -> bool {
         }
     }
     true
+}
+
+#[derive(Debug, Error)]
+pub enum StorageError {
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("json: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("course not found: {0}")]
+    NotFound(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct CourseMeta {
+    pub id: String,
+    pub title: String,
+    pub created_at: DateTime<Utc>,
+    pub total_sentences: usize,
+}
+
+pub fn list_courses(courses_dir: &std::path::Path) -> Result<Vec<CourseMeta>, StorageError> {
+    let mut out = Vec::new();
+    if !courses_dir.exists() {
+        return Ok(out);
+    }
+    for entry in std::fs::read_dir(courses_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        // Skip unreadable or corrupt files silently — one bad file must not
+        // break the whole list page.
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(course) = serde_json::from_slice::<Course>(&bytes) else {
+            continue;
+        };
+        out.push(CourseMeta {
+            id: course.id,
+            title: course.title,
+            created_at: course.source.created_at,
+            total_sentences: course.sentences.len(),
+        });
+    }
+    Ok(out)
+}
+
+pub fn load_course(courses_dir: &std::path::Path, id: &str) -> Result<Course, StorageError> {
+    let path = courses_dir.join(format!("{id}.json"));
+    let bytes = std::fs::read(&path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            StorageError::NotFound(id.into())
+        } else {
+            StorageError::Io(e)
+        }
+    })?;
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
+pub fn save_course(courses_dir: &std::path::Path, course: &Course) -> Result<(), StorageError> {
+    debug_assert!(
+        is_kebab_case(&course.id),
+        "save_course called with non-kebab-case id: {:?}",
+        course.id
+    );
+    let bytes = serde_json::to_vec_pretty(course)?;
+    let path = courses_dir.join(format!("{}.json", course.id));
+    write_atomic(&path, &bytes)?;
+    Ok(())
+}
+
+pub fn delete_course(courses_dir: &std::path::Path, id: &str) -> Result<(), StorageError> {
+    let path = courses_dir.join(format!("{id}.json"));
+    std::fs::remove_file(&path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            StorageError::NotFound(id.into())
+        } else {
+            StorageError::Io(e)
+        }
+    })
 }

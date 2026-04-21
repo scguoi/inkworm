@@ -4,3 +4,6 @@ pub mod course;
 pub mod failed;
 pub mod paths;
 pub mod progress;
+
+pub use course::{Course, CourseMeta, Drill, Focus, Sentence, Source, SourceKind, StorageError};
+pub use paths::DataPaths;

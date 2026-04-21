@@ -308,3 +308,136 @@ mod course_bad {
         );
     }
 }
+
+mod course_crud {
+    use super::common::TestEnv;
+    use inkworm::storage::course::{
+        delete_course, list_courses, load_course, save_course, Course, StorageError,
+    };
+
+    fn fixture_minimal() -> Course {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures/courses/good/minimal.json");
+        let json = std::fs::read_to_string(&path).unwrap();
+        serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn save_then_load_round_trips() {
+        let env = TestEnv::new();
+        let dir = env.home.join("courses");
+        std::fs::create_dir_all(&dir).unwrap();
+        let c = fixture_minimal();
+        save_course(&dir, &c).unwrap();
+        let loaded = load_course(&dir, &c.id).unwrap();
+        assert_eq!(loaded, c);
+    }
+
+    #[test]
+    fn list_courses_returns_all_saved() {
+        let env = TestEnv::new();
+        let dir = env.home.join("courses");
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut c = fixture_minimal();
+        save_course(&dir, &c).unwrap();
+        c.id = "2026-04-21-second".into();
+        save_course(&dir, &c).unwrap();
+        let mut metas = list_courses(&dir).unwrap();
+        metas.sort_by(|a, b| a.id.cmp(&b.id));
+        assert_eq!(metas.len(), 2);
+        assert_eq!(metas[0].id, "2026-04-21-second");
+    }
+
+    #[test]
+    fn list_empty_dir_returns_empty() {
+        let env = TestEnv::new();
+        let dir = env.home.join("courses");
+        std::fs::create_dir_all(&dir).unwrap();
+        let metas = list_courses(&dir).unwrap();
+        assert!(metas.is_empty());
+    }
+
+    #[test]
+    fn list_nonexistent_dir_returns_empty() {
+        let env = TestEnv::new();
+        let dir = env.home.join("no-such");
+        let metas = list_courses(&dir).unwrap();
+        assert!(metas.is_empty());
+    }
+
+    #[test]
+    fn load_missing_returns_not_found() {
+        let env = TestEnv::new();
+        let dir = env.home.join("courses");
+        std::fs::create_dir_all(&dir).unwrap();
+        let err = load_course(&dir, "does-not-exist").unwrap_err();
+        assert!(matches!(err, StorageError::NotFound(_)));
+    }
+
+    #[test]
+    fn delete_removes_file() {
+        let env = TestEnv::new();
+        let dir = env.home.join("courses");
+        std::fs::create_dir_all(&dir).unwrap();
+        let c = fixture_minimal();
+        save_course(&dir, &c).unwrap();
+        delete_course(&dir, &c.id).unwrap();
+        assert!(matches!(
+            load_course(&dir, &c.id).unwrap_err(),
+            StorageError::NotFound(_)
+        ));
+    }
+
+    #[test]
+    fn delete_missing_returns_not_found() {
+        let env = TestEnv::new();
+        let dir = env.home.join("courses");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(matches!(
+            delete_course(&dir, "no").unwrap_err(),
+            StorageError::NotFound(_)
+        ));
+    }
+
+    #[test]
+    fn save_overwrites_existing() {
+        let env = TestEnv::new();
+        let dir = env.home.join("courses");
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut c = fixture_minimal();
+        save_course(&dir, &c).unwrap();
+        c.title = "Updated title".into();
+        save_course(&dir, &c).unwrap();
+        let loaded = load_course(&dir, &c.id).unwrap();
+        assert_eq!(loaded.title, "Updated title");
+    }
+
+    #[test]
+    fn list_skips_corrupt_json_file() {
+        let env = TestEnv::new();
+        let dir = env.home.join("courses");
+        std::fs::create_dir_all(&dir).unwrap();
+        let c = fixture_minimal();
+        save_course(&dir, &c).unwrap();
+        // Drop a malformed file beside the good one.
+        std::fs::write(dir.join("broken.json"), b"{ not valid json").unwrap();
+        let metas = list_courses(&dir).unwrap();
+        // Only the valid course appears.
+        assert_eq!(metas.len(), 1);
+        assert_eq!(metas[0].id, c.id);
+    }
+
+    #[test]
+    fn list_skips_unreadable_non_json() {
+        let env = TestEnv::new();
+        let dir = env.home.join("courses");
+        std::fs::create_dir_all(&dir).unwrap();
+        let c = fixture_minimal();
+        save_course(&dir, &c).unwrap();
+        // A README-style file that isn't .json should be filtered by extension,
+        // not skipped silently as a corrupt-json case.
+        std::fs::write(dir.join("README.md"), b"not a course").unwrap();
+        let metas = list_courses(&dir).unwrap();
+        assert_eq!(metas.len(), 1);
+    }
+}
