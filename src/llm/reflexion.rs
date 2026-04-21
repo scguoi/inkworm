@@ -190,17 +190,30 @@ impl<'a> Reflexion<'a> {
     pub async fn orchestrate_phase2(
         &self,
         sentences: &[RawSentence],
+        progress_tx: Option<tokio::sync::mpsc::Sender<crate::ui::task_msg::GenerateProgress>>,
     ) -> Result<Vec<RawDrills>, ReflexionError> {
         let sem = Arc::new(Semaphore::new(self.max_concurrent.max(1)));
+        let total = sentences.len();
+        let done_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
         let tasks: Vec<_> = sentences
             .iter()
             .enumerate()
             .map(|(i, s)| {
                 let sem = sem.clone();
                 let sentence = s.clone();
+                let done_count = done_count.clone();
+                let progress_tx = progress_tx.clone();
                 async move {
                     let _permit = sem.acquire().await.unwrap();
-                    self.reflexion_drill(i, &sentence).await
+                    let result = self.reflexion_drill(i, &sentence).await;
+                    if result.is_ok() {
+                        let done = done_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                        if let Some(tx) = progress_tx {
+                            let _ = tx.send(crate::ui::task_msg::GenerateProgress::Phase2Progress { done, total }).await;
+                        }
+                    }
+                    result
                 }
             })
             .collect();
@@ -216,9 +229,18 @@ impl<'a> Reflexion<'a> {
         &self,
         article: &str,
         existing_ids: &[String],
+        progress_tx: Option<tokio::sync::mpsc::Sender<crate::ui::task_msg::GenerateProgress>>,
     ) -> Result<ReflexionOutcome, ReflexionError> {
+        if let Some(tx) = &progress_tx {
+            let _ = tx.send(crate::ui::task_msg::GenerateProgress::Phase1Started).await;
+        }
         let phase1 = self.reflexion_split(article).await?;
-        let phase2 = self.orchestrate_phase2(&phase1.sentences).await?;
+        if let Some(tx) = &progress_tx {
+            let _ = tx.send(crate::ui::task_msg::GenerateProgress::Phase1Done {
+                sentence_count: phase1.sentences.len(),
+            }).await;
+        }
+        let phase2 = self.orchestrate_phase2(&phase1.sentences, progress_tx).await?;
         let course = build_course(
             &phase1.sentences,
             &phase2,

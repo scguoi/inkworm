@@ -10,11 +10,11 @@ pub const COMMANDS: &[Command] = &[
     Command { name: "quit", aliases: &["q"], description: "Save progress and exit", available: true },
     Command { name: "skip", aliases: &[], description: "Skip current drill", available: true },
     Command { name: "help", aliases: &[], description: "Show command list", available: true },
-    Command { name: "import", aliases: &[], description: "Create a new course", available: false },
+    Command { name: "import", aliases: &[], description: "Create a new course", available: true },
     Command { name: "list", aliases: &[], description: "Browse courses", available: false },
     Command { name: "config", aliases: &[], description: "Configuration wizard", available: false },
     Command { name: "tts", aliases: &[], description: "TTS settings", available: false },
-    Command { name: "delete", aliases: &[], description: "Delete current course", available: false },
+    Command { name: "delete", aliases: &[], description: "Delete current course", available: true },
     Command { name: "logs", aliases: &[], description: "Show log file path", available: false },
     Command { name: "doctor", aliases: &[], description: "Health check", available: false },
 ];

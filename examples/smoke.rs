@@ -52,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
 
     eprintln!("Generating course from {article_path:?} …");
     let t0 = std::time::Instant::now();
-    let outcome = r.generate(&article, &[]).await?;
+    let outcome = r.generate(&article, &[], None).await?;
     let elapsed = t0.elapsed();
     eprintln!("Done in {elapsed:.2?}. Course:");
     println!("{}", serde_json::to_string_pretty(&outcome.course)?);
