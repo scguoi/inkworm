@@ -4,6 +4,7 @@ use std::time::Duration;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Frame;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use crate::clock::Clock;
 use crate::config::Config;
@@ -106,7 +107,7 @@ impl App {
     pub fn on_task_msg(&mut self, msg: TaskMsg) {
         match msg {
             TaskMsg::Generate(progress) => self.handle_generate_progress(progress),
-            TaskMsg::Wizard(_) => {} // placeholder — wired up in Task 5
+            TaskMsg::Wizard(m) => self.handle_wizard_task_msg(m),
         }
     }
 
@@ -503,8 +504,127 @@ impl App {
         }
     }
 
-    fn handle_config_wizard_key(&mut self, _key: KeyEvent) {
-        // Implemented in Task 5
+    fn handle_config_wizard_key(&mut self, key: KeyEvent) {
+        use crate::ui::config_wizard::{BackOutcome, CommitOutcome};
+
+        let is_testing = self
+            .config_wizard
+            .as_ref()
+            .and_then(|s| s.testing.as_ref())
+            .is_some();
+
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            self.quit();
+            return;
+        }
+
+        if is_testing {
+            if key.code == KeyCode::Esc {
+                if let Some(ref mut state) = self.config_wizard {
+                    if let Some(ref t) = state.testing {
+                        t.cancel_token.cancel();
+                    }
+                    state.testing = None;
+                }
+            }
+            return;
+        }
+
+        match key.code {
+            KeyCode::Esc => {
+                let outcome = self
+                    .config_wizard
+                    .as_mut()
+                    .map(|s| s.back())
+                    .unwrap_or(BackOutcome::NoOp);
+                match outcome {
+                    BackOutcome::Back | BackOutcome::NoOp => {}
+                    BackOutcome::Abort => {
+                        self.config_wizard = None;
+                        self.screen = Screen::Study;
+                    }
+                }
+            }
+            KeyCode::Enter => {
+                let outcome = self
+                    .config_wizard
+                    .as_mut()
+                    .map(|s| s.commit())
+                    .unwrap_or(CommitOutcome::Invalid);
+                match outcome {
+                    CommitOutcome::ProbeConnectivity => {
+                        self.spawn_connectivity_test();
+                    }
+                    CommitOutcome::Advance | CommitOutcome::Invalid => {}
+                }
+            }
+            KeyCode::Backspace => {
+                if let Some(ref mut state) = self.config_wizard {
+                    state.backspace();
+                }
+            }
+            KeyCode::Char(c) => {
+                if let Some(ref mut state) = self.config_wizard {
+                    state.type_char(c);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn spawn_connectivity_test(&mut self) {
+        use crate::ui::config_wizard::{TestingState, probe_llm};
+        use crate::ui::task_msg::WizardTaskMsg;
+
+        let llm = match self.config_wizard.as_ref() {
+            Some(s) => s.draft.llm.clone(),
+            None => return,
+        };
+        let cancel = CancellationToken::new();
+        if let Some(state) = self.config_wizard.as_mut() {
+            state.testing = Some(TestingState {
+                cancel_token: cancel.clone(),
+            });
+        }
+        let task_tx = self.task_tx.clone();
+        tokio::spawn(async move {
+            let msg = match probe_llm(llm, cancel).await {
+                Ok(()) => WizardTaskMsg::ConnectivityOk,
+                Err(e) => WizardTaskMsg::ConnectivityFailed(e),
+            };
+            let _ = task_tx.send(TaskMsg::Wizard(msg)).await;
+        });
+    }
+
+    fn handle_wizard_task_msg(&mut self, msg: crate::ui::task_msg::WizardTaskMsg) {
+        use crate::ui::error_banner::user_message;
+        use crate::ui::task_msg::WizardTaskMsg;
+
+        let Some(wizard) = self.config_wizard.as_mut() else { return };
+        wizard.testing = None;
+
+        match msg {
+            WizardTaskMsg::ConnectivityOk => {
+                // Re-read existing config.toml to preserve non-LLM fields (TTS etc.).
+                // Fall back to Config::default() if file missing or parse error.
+                let mut merged = Config::load(&self.data_paths.config_file).unwrap_or_default();
+                merged.llm = wizard.draft.llm.clone();
+                match merged.write_atomic(&self.data_paths.config_file) {
+                    Ok(()) => {
+                        self.config = merged;
+                        self.config_wizard = None;
+                        self.screen = Screen::Study;
+                    }
+                    Err(e) => {
+                        let app_err = crate::error::AppError::Config(e);
+                        wizard.error = Some(user_message(&app_err));
+                    }
+                }
+            }
+            WizardTaskMsg::ConnectivityFailed(e) => {
+                wizard.error = Some(user_message(&e));
+            }
+        }
     }
 }
 
