@@ -268,8 +268,8 @@ impl App {
             }
             KeyCode::Enter => {
                 if let Some(p) = &self.palette {
-                    if let Some(cmd) = p.confirm() {
-                        self.execute_command(cmd);
+                    if let Some((cmd, args)) = p.confirm() {
+                        self.execute_command(cmd, &args);
                     }
                 }
                 if !self.should_quit {
@@ -497,7 +497,7 @@ impl App {
         });
     }
 
-    fn execute_command(&mut self, cmd: &Command) {
+    fn execute_command(&mut self, cmd: &Command, _args: &[String]) {
         match cmd.name {
             "quit" | "q" => self.quit(),
             "skip" => self.study.skip(),
@@ -509,13 +509,13 @@ impl App {
             "config" => {
                 self.open_wizard(crate::ui::config_wizard::WizardOrigin::Command);
             }
+            "list" => self.open_course_list(),
             "delete" => {
                 if let Some(course) = self.study.current_course() {
                     self.delete_confirming = Some(course.title.clone());
                     self.screen = Screen::DeleteConfirm;
                 }
             }
-            "list" => self.open_course_list(),
             _ => {}
         }
     }
