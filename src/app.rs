@@ -499,7 +499,9 @@ impl App {
                 }
             }
             Screen::ConfigWizard => {
-                // render added in Task 6
+                if let Some(ref state) = self.config_wizard {
+                    crate::ui::config_wizard::render_config_wizard(frame, state, self.cursor_visible);
+                }
             }
         }
     }

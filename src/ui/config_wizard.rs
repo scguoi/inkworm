@@ -171,6 +171,47 @@ pub async fn probe_llm(llm: LlmConfig, cancel: CancellationToken) -> Result<(), 
     }
 }
 
+/// Title line for the wizard frame.
+pub fn wizard_title(step: WizardStep) -> String {
+    let n = match step {
+        WizardStep::Endpoint => 1,
+        WizardStep::ApiKey => 2,
+        WizardStep::Model => 3,
+    };
+    format!("inkworm — setup ({n} / 3)")
+}
+
+/// Step-specific label.
+pub fn wizard_step_label(step: WizardStep) -> &'static str {
+    match step {
+        WizardStep::Endpoint => "LLM endpoint",
+        WizardStep::ApiKey => "LLM API key",
+        WizardStep::Model => "LLM model",
+    }
+}
+
+/// Display-ready input — masks the ApiKey step, passes through otherwise.
+pub fn mask_for_display(input: &str, step: WizardStep) -> String {
+    if step == WizardStep::ApiKey {
+        "*".repeat(input.chars().count())
+    } else {
+        input.to_string()
+    }
+}
+
+/// Hint line at the bottom of the wizard.
+pub fn wizard_hint(step: WizardStep, origin: WizardOrigin, testing: bool) -> &'static str {
+    if testing {
+        return "Testing connectivity…     Esc · cancel";
+    }
+    match (step, origin) {
+        (WizardStep::Endpoint, WizardOrigin::FirstRun) => "Enter · next     Ctrl+C · quit",
+        (WizardStep::Endpoint, WizardOrigin::Command) => "Enter · next     Esc · cancel",
+        (WizardStep::ApiKey, _) => "Enter · next     Esc · back",
+        (WizardStep::Model, _) => "Enter · test and save     Esc · back",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,5 +352,115 @@ mod tests {
             matches!(err, AppError::Llm(crate::llm::error::LlmError::Unauthorized)),
             "{err:?}"
         );
+    }
+
+    #[test]
+    fn mask_hides_apikey_but_preserves_others() {
+        assert_eq!(
+            mask_for_display("supersecret", WizardStep::ApiKey),
+            "***********"
+        );
+        assert_eq!(
+            mask_for_display("https://x/v1", WizardStep::Endpoint),
+            "https://x/v1"
+        );
+        assert_eq!(
+            mask_for_display("gpt-4o-mini", WizardStep::Model),
+            "gpt-4o-mini"
+        );
+    }
+
+    #[test]
+    fn mask_counts_unicode_chars_not_bytes() {
+        // Each CJK char is multi-byte — we count chars, so mask length = char count.
+        assert_eq!(mask_for_display("你好", WizardStep::ApiKey), "**");
+    }
+
+    #[test]
+    fn title_shows_1_of_3_on_endpoint() {
+        assert_eq!(wizard_title(WizardStep::Endpoint), "inkworm — setup (1 / 3)");
+        assert_eq!(wizard_title(WizardStep::ApiKey), "inkworm — setup (2 / 3)");
+        assert_eq!(wizard_title(WizardStep::Model), "inkworm — setup (3 / 3)");
+    }
+
+    #[test]
+    fn hint_on_endpoint_firstrun_says_ctrl_c_quit() {
+        let h = wizard_hint(WizardStep::Endpoint, WizardOrigin::FirstRun, false);
+        assert!(h.contains("Ctrl+C"));
+        assert!(!h.contains("back"));
+    }
+
+    #[test]
+    fn hint_on_endpoint_command_says_esc_cancel() {
+        let h = wizard_hint(WizardStep::Endpoint, WizardOrigin::Command, false);
+        assert!(h.contains("Esc"));
+        assert!(h.contains("cancel"));
+    }
+
+    #[test]
+    fn hint_during_testing_mentions_connectivity() {
+        let h = wizard_hint(WizardStep::Model, WizardOrigin::FirstRun, true);
+        assert!(h.to_lowercase().contains("testing"));
+    }
+}
+
+use ratatui::{
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::Paragraph,
+    Frame,
+};
+
+pub fn render_config_wizard(frame: &mut Frame, state: &WizardState, cursor_visible: bool) {
+    let area = frame.area();
+
+    let title = wizard_title(state.step);
+    let label = wizard_step_label(state.step);
+    let rendered_input = mask_for_display(&state.input, state.step);
+    let cursor_glyph = if cursor_visible { "_" } else { " " };
+    let hint = wizard_hint(state.step, state.origin, state.testing.is_some());
+
+    let has_error = state.error.is_some();
+    let block_height: u16 = if has_error { 8 } else { 6 };
+    let top = area.height.saturating_sub(block_height) / 2;
+    let left = area.width / 5;
+    let width = area.width.saturating_sub(left * 2);
+
+    let title_line = Paragraph::new(Span::styled(
+        title,
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    ));
+    frame.render_widget(title_line, Rect::new(left, top, width, 1));
+
+    let label_line = Paragraph::new(Span::styled(
+        label,
+        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+    ));
+    frame.render_widget(label_line, Rect::new(left, top + 2, width, 1));
+
+    let input_line = Paragraph::new(Line::from(vec![
+        Span::styled("> ", Style::default().fg(Color::DarkGray)),
+        Span::styled(rendered_input, Style::default().fg(Color::White)),
+        Span::styled(cursor_glyph, Style::default().fg(Color::White)),
+    ]));
+    frame.render_widget(input_line, Rect::new(left, top + 3, width, 1));
+
+    let hint_line = Paragraph::new(Span::styled(hint, Style::default().fg(Color::DarkGray)));
+    frame.render_widget(hint_line, Rect::new(left, top + 5, width, 1));
+
+    if let Some(ref err) = state.error {
+        let color = match err.severity {
+            crate::ui::error_banner::Severity::Error => Color::Red,
+            crate::ui::error_banner::Severity::Warning => Color::Yellow,
+            crate::ui::error_banner::Severity::Info => Color::Blue,
+        };
+        let err_line = Paragraph::new(Span::styled(
+            err.headline.clone(),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ));
+        frame.render_widget(err_line, Rect::new(left, top + 7, width, 1));
     }
 }
