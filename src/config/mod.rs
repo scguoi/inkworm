@@ -200,8 +200,8 @@ impl Config {
         Ok(())
     }
 
-    /// Collects ALL validation errors, does not short-circuit.
-    pub fn validate(&self) -> Vec<ConfigError> {
+    /// LLM + generation subsystem fields (gated by main.rs at startup).
+    pub fn validate_llm(&self) -> Vec<ConfigError> {
         let mut errs = Vec::new();
         if self.llm.api_key.trim().is_empty() {
             errs.push(ConfigError::MissingField("llm.api_key"));
@@ -212,6 +212,18 @@ impl Config {
         if self.llm.model.trim().is_empty() {
             errs.push(ConfigError::MissingField("llm.model"));
         }
+        if self.generation.max_concurrent_calls == 0 {
+            errs.push(ConfigError::Invalid {
+                field: "generation.max_concurrent_calls",
+                reason: "must be ≥1".into(),
+            });
+        }
+        errs
+    }
+
+    /// TTS subsystem fields (checked separately — Plan 6 owns TTS).
+    pub fn validate_tts(&self) -> Vec<ConfigError> {
+        let mut errs = Vec::new();
         if self.tts.enabled && self.tts.r#override != TtsOverride::Off {
             if self.tts.iflytek.app_id.trim().is_empty() {
                 errs.push(ConfigError::MissingField("tts.iflytek.app_id"));
@@ -223,12 +235,13 @@ impl Config {
                 errs.push(ConfigError::MissingField("tts.iflytek.api_secret"));
             }
         }
-        if self.generation.max_concurrent_calls == 0 {
-            errs.push(ConfigError::Invalid {
-                field: "generation.max_concurrent_calls",
-                reason: "must be ≥1".into(),
-            });
-        }
+        errs
+    }
+
+    /// Collects ALL validation errors, does not short-circuit.
+    pub fn validate(&self) -> Vec<ConfigError> {
+        let mut errs = self.validate_llm();
+        errs.extend(self.validate_tts());
         errs
     }
 
@@ -239,5 +252,52 @@ impl Config {
         } else {
             Some(PathBuf::from(s))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_llm_catches_missing_api_key() {
+        let cfg = Config::default();
+        let errs = cfg.validate_llm();
+        assert!(errs.iter().any(|e| matches!(e, ConfigError::MissingField("llm.api_key"))));
+    }
+
+    #[test]
+    fn validate_llm_does_not_flag_tts_issues() {
+        // Default config has tts.enabled=true and empty iflytek fields — but that's TTS's problem, not LLM's.
+        let mut cfg = Config::default();
+        cfg.llm.api_key = "sk-ok".into();
+        let errs = cfg.validate_llm();
+        assert!(errs.is_empty(), "got {errs:?}");
+    }
+
+    #[test]
+    fn validate_tts_flags_missing_iflytek_when_enabled() {
+        let cfg = Config::default();
+        let errs = cfg.validate_tts();
+        assert!(errs.iter().any(|e| matches!(e, ConfigError::MissingField("tts.iflytek.app_id"))));
+    }
+
+    #[test]
+    fn validate_delegates_to_both_llm_first() {
+        let cfg = Config::default();
+        let full = cfg.validate();
+        let llm = cfg.validate_llm();
+        let tts = cfg.validate_tts();
+        let expected: Vec<_> = llm.into_iter().chain(tts).collect();
+        assert_eq!(full, expected);
+    }
+
+    #[test]
+    fn validate_llm_flags_zero_concurrency() {
+        let mut cfg = Config::default();
+        cfg.llm.api_key = "sk-ok".into();
+        cfg.generation.max_concurrent_calls = 0;
+        let errs = cfg.validate_llm();
+        assert!(errs.iter().any(|e| matches!(e, ConfigError::Invalid { field: "generation.max_concurrent_calls", .. })));
     }
 }
