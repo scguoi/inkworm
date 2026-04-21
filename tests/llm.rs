@@ -119,3 +119,22 @@ mod client {
         assert!(matches!(err, LlmError::InvalidResponse(_)), "{err:?}");
     }
 }
+
+mod prompts {
+    use inkworm::llm::prompt::{PHASE1_SYSTEM, PHASE2_SYSTEM, REPAIR_TEMPLATE};
+
+    #[test]
+    fn phase1_system_snapshot() {
+        insta::assert_snapshot!("phase1_system", PHASE1_SYSTEM);
+    }
+
+    #[test]
+    fn phase2_system_snapshot() {
+        insta::assert_snapshot!("phase2_system", PHASE2_SYSTEM);
+    }
+
+    #[test]
+    fn repair_template_snapshot() {
+        insta::assert_snapshot!("repair_template", REPAIR_TEMPLATE);
+    }
+}
