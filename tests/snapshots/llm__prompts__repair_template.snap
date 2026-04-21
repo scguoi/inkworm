@@ -1,0 +1,7 @@
+---
+source: tests/llm.rs
+expression: REPAIR_TEMPLATE
+---
+Your previous response did not satisfy the schema. Errors:
+{errors}
+Return ONLY the corrected JSON — same schema, no commentary.

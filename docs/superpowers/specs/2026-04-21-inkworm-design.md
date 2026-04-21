@@ -307,9 +307,24 @@ Phase 2 失败时文件名包含 sentence 序号（`2026-04-21-10-30-42-phase2-s
 **Phase 1 system prompt**（常量，`insta` 快照锁定）：
 
 ```
-Select 5–20 pedagogically useful sentences from the article.
-Output ONLY JSON: {"sentences":[{"chinese":"...","english":"..."}]}
-Each English sentence should be typable, natural, and self-contained.
+You are a bilingual language tutor preparing a typing-practice lesson from an English article.
+
+Output ONLY JSON, no markdown fences, no commentary. Schema:
+
+{
+  "title":       "English string, 1-100 chars, a concise lesson title",
+  "description": "Optional Chinese description, ≤300 chars (empty string allowed)",
+  "sentences": [
+    { "chinese": "natural Chinese translation (1-200 chars)",
+      "english": "sentence from the article, 5-30 words, self-contained, typable ASCII" }
+  ]
+}
+
+Rules:
+- Select 5–20 pedagogically useful sentences (varied grammar, common phrasing).
+- If the article is long, pick the most instructive sentences; do NOT quote the whole article.
+- Each English sentence must be typable (ASCII letters, straight quotes, basic punctuation).
+- Return JSON only.
 ```
 
 **Phase 2 system prompt**（常量，`insta` 快照锁定）：

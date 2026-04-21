@@ -1,8 +1,10 @@
-//! Shared test helpers. Files in `tests/subdir/mod.rs` are NOT compiled as
-//! separate test binaries — this is cargo's convention — so this module is
-//! used by each top-level `tests/*.rs` via `mod common;`.
+//! Shared test helpers. Files under `tests/common/` are not compiled as
+//! separate integration binaries — this module is used by each top-level
+//! `tests/*.rs` via `mod common;`.
 
 #![allow(dead_code)]
+
+pub mod llm_mocks;
 
 use std::path::PathBuf;
 use tempfile::TempDir;
