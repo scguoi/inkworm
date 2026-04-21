@@ -5,5 +5,7 @@ pub mod failed;
 pub mod paths;
 pub mod progress;
 
-pub use course::{Course, CourseMeta, Drill, Focus, Sentence, Source, SourceKind, StorageError};
+pub use course::{
+    Course, CourseMeta, Drill, Focus, Sentence, Source, SourceKind, StorageError, ValidationError,
+};
 pub use paths::DataPaths;
