@@ -457,7 +457,8 @@ mod course_list_meta {
 
         let metas = list_courses(dir.path()).unwrap();
         assert_eq!(metas.len(), 1);
-        assert!(metas[0].total_drills >= 3, "got {}", metas[0].total_drills);
+        // minimal.json fixture: 5 sentences × 3 drills each = 15.
+        assert_eq!(metas[0].total_drills, 15);
     }
 
     #[test]
@@ -478,11 +479,7 @@ mod course_list_meta {
         ] {
             v["id"] = serde_json::Value::String(id.into());
             v["source"]["createdAt"] = serde_json::Value::String(date.into());
-            std::fs::write(
-                dir.path().join(fname),
-                serde_json::to_vec(&v).unwrap(),
-            )
-            .unwrap();
+            std::fs::write(dir.path().join(fname), serde_json::to_vec(&v).unwrap()).unwrap();
         }
 
         let metas = list_courses(dir.path()).unwrap();
