@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::path::PathBuf;
 
 use inkworm::app::App;
@@ -52,8 +53,16 @@ fn main() -> anyhow::Result<()> {
 
     rt.block_on(async {
         let mut guard = TerminalGuard::new()?;
-        let mut app = App::new(course, progress, paths, Box::new(SystemClock));
-        run_loop(&mut guard, &mut app).await
+        let (task_tx, task_rx) = tokio::sync::mpsc::channel(32);
+        let mut app = App::new(
+            course,
+            progress,
+            paths,
+            Arc::new(SystemClock),
+            config,
+            task_tx,
+        );
+        run_loop(&mut guard, &mut app, task_rx).await
     })?;
 
     Ok(())
