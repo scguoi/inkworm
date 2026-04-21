@@ -256,6 +256,7 @@ pub struct CourseMeta {
     pub title: String,
     pub created_at: DateTime<Utc>,
     pub total_sentences: usize,
+    pub total_drills: usize,
 }
 
 pub fn list_courses(courses_dir: &std::path::Path) -> Result<Vec<CourseMeta>, StorageError> {
@@ -277,13 +278,16 @@ pub fn list_courses(courses_dir: &std::path::Path) -> Result<Vec<CourseMeta>, St
         let Ok(course) = serde_json::from_slice::<Course>(&bytes) else {
             continue;
         };
+        let total_drills = course.sentences.iter().map(|s| s.drills.len()).sum();
         out.push(CourseMeta {
             id: course.id,
             title: course.title,
             created_at: course.source.created_at,
             total_sentences: course.sentences.len(),
+            total_drills,
         });
     }
+    out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     Ok(out)
 }
 

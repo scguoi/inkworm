@@ -442,6 +442,61 @@ mod course_crud {
     }
 }
 
+mod course_list_meta {
+    use inkworm::storage::course::list_courses;
+
+    #[test]
+    fn list_courses_populates_total_drills() {
+        let dir = tempfile::tempdir().unwrap();
+        let json = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures/courses/good/minimal.json"),
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("a.json"), &json).unwrap();
+
+        let metas = list_courses(dir.path()).unwrap();
+        assert_eq!(metas.len(), 1);
+        assert!(metas[0].total_drills >= 3, "got {}", metas[0].total_drills);
+    }
+
+    #[test]
+    fn list_courses_sorted_newest_first() {
+        use chrono::{TimeZone, Utc};
+
+        let dir = tempfile::tempdir().unwrap();
+        let base = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures/courses/good/minimal.json"),
+        )
+        .unwrap();
+        let mut v: serde_json::Value = serde_json::from_str(&base).unwrap();
+        for (fname, date, id) in [
+            ("old.json", "2026-01-01T00:00:00Z", "old"),
+            ("newest.json", "2026-04-15T00:00:00Z", "newest"),
+            ("mid.json", "2026-03-01T00:00:00Z", "mid"),
+        ] {
+            v["id"] = serde_json::Value::String(id.into());
+            v["source"]["createdAt"] = serde_json::Value::String(date.into());
+            std::fs::write(
+                dir.path().join(fname),
+                serde_json::to_vec(&v).unwrap(),
+            )
+            .unwrap();
+        }
+
+        let metas = list_courses(dir.path()).unwrap();
+        assert_eq!(
+            metas.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            vec!["newest", "mid", "old"]
+        );
+        assert_eq!(
+            metas[0].created_at,
+            Utc.with_ymd_and_hms(2026, 4, 15, 0, 0, 0).unwrap()
+        );
+    }
+}
+
 mod progress {
     use super::common::TestEnv;
     use chrono::{TimeZone, Utc};
