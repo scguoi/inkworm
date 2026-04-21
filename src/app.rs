@@ -6,7 +6,7 @@ use crate::storage::course::Course;
 use crate::storage::progress::Progress;
 use crate::storage::DataPaths;
 use crate::ui::palette::{PaletteState, Command};
-use crate::ui::study::{FeedbackState, StudyPhase, StudyState};
+use crate::ui::study::{FeedbackState, StudyState};
 
 pub enum Screen {
     Study,

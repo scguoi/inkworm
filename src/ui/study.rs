@@ -304,7 +304,6 @@ fn build_input_line<'a>(
             ));
         }
         FeedbackState::Wrong { diff_index } => {
-            let ref_chars: Vec<char> = reference.chars().collect();
             // Typed portion up to diff
             let before: String = input_chars[..*diff_index.min(&input_chars.len())].iter().collect();
             spans.push(Span::styled(before, Style::default().fg(Color::White)));
