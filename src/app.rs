@@ -12,7 +12,7 @@ use crate::storage::course::Course;
 use crate::storage::progress::Progress;
 use crate::storage::DataPaths;
 use crate::ui::error_banner::user_message;
-use crate::ui::generate::{GenerateSubstate, PastingState, RunningState, ResultState};
+use crate::ui::generate::{GenerateSubstate, PastingState, ResultState, RunningState};
 use crate::ui::palette::{Command, PaletteState};
 use crate::ui::study::{FeedbackState, StudyState};
 use crate::ui::task_msg::{GenerateProgress, TaskMsg};
@@ -24,6 +24,7 @@ pub enum Screen {
     Generate,
     DeleteConfirm,
     ConfigWizard,
+    CourseList,
 }
 
 pub struct App {
@@ -40,6 +41,7 @@ pub struct App {
     pub config: Config,
     pub delete_confirming: Option<String>,
     pub config_wizard: Option<crate::ui::config_wizard::WizardState>,
+    pub course_list: Option<crate::ui::course_list::CourseListState>,
 }
 
 impl App {
@@ -65,6 +67,7 @@ impl App {
             config,
             delete_confirming: None,
             config_wizard: None,
+            course_list: None,
         }
     }
 
@@ -73,6 +76,38 @@ impl App {
         let state = WizardState::new(origin, self.config.clone());
         self.config_wizard = Some(state);
         self.screen = Screen::ConfigWizard;
+    }
+
+    pub fn open_course_list(&mut self) {
+        use crate::storage::course::list_courses;
+        use crate::ui::course_list::CourseListState;
+        let metas = list_courses(&self.data_paths.courses_dir).unwrap_or_default();
+        self.course_list = Some(CourseListState::new(metas, self.study.progress()));
+        self.screen = Screen::CourseList;
+    }
+
+    fn switch_to_course(&mut self, new_id: String) {
+        use crate::storage::course::load_course;
+        // Best-effort save before switching.
+        if let Err(e) = self.study.progress().save(&self.data_paths.progress_file) {
+            eprintln!("Failed to save progress before switch: {e}");
+        }
+        let course = match load_course(&self.data_paths.courses_dir, &new_id) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Failed to load course {new_id}: {e}");
+                // Stay on list; leave state unchanged.
+                return;
+            }
+        };
+        self.study.progress_mut().active_course_id = Some(new_id);
+        if let Err(e) = self.study.progress().save(&self.data_paths.progress_file) {
+            eprintln!("Failed to save progress after switch: {e}");
+        }
+        let progress = self.study.progress().clone();
+        self.study = crate::ui::study::StudyState::new(Some(course), progress);
+        self.course_list = None;
+        self.screen = Screen::Study;
     }
 
     pub fn on_tick(&mut self) {
@@ -92,6 +127,7 @@ impl App {
                 Screen::Generate => self.handle_generate_key(key),
                 Screen::DeleteConfirm => self.handle_delete_confirm_key(key),
                 Screen::ConfigWizard => self.handle_config_wizard_key(key),
+                Screen::CourseList => self.handle_course_list_key(key),
             },
             Event::Paste(text) => {
                 if let Screen::Generate = self.screen {
@@ -260,20 +296,31 @@ impl App {
             GenerateSubstate::Pasting(_) => {
                 if key.modifiers.contains(KeyModifiers::CONTROL) {
                     match key.code {
-                        KeyCode::Char('c') => { self.quit(); return; }
+                        KeyCode::Char('c') => {
+                            self.quit();
+                            return;
+                        }
                         KeyCode::Enter => {
-                            let can_submit = if let Some(GenerateSubstate::Pasting(p)) = &self.generate {
-                                p.can_submit(self.config.generation.max_article_bytes)
-                            } else { false };
+                            let can_submit =
+                                if let Some(GenerateSubstate::Pasting(p)) = &self.generate {
+                                    p.can_submit(self.config.generation.max_article_bytes)
+                                } else {
+                                    false
+                                };
                             if can_submit {
-                                let text = if let Some(GenerateSubstate::Pasting(p)) = &self.generate {
-                                    p.text.clone()
-                                } else { return };
+                                let text =
+                                    if let Some(GenerateSubstate::Pasting(p)) = &self.generate {
+                                        p.text.clone()
+                                    } else {
+                                        return;
+                                    };
                                 self.submit_generate(text);
                             }
                             return;
                         }
-                        _ => { return; }
+                        _ => {
+                            return;
+                        }
                     }
                 }
                 match key.code {
@@ -424,7 +471,8 @@ impl App {
                             crate::error::AppError::Cancelled
                         }
                         crate::llm::reflexion::ReflexionError::AllAttemptsFailed {
-                            saved_to, ..
+                            saved_to,
+                            ..
                         } => crate::error::AppError::Reflexion {
                             attempts: 3,
                             saved_to,
@@ -467,6 +515,7 @@ impl App {
                     self.screen = Screen::DeleteConfirm;
                 }
             }
+            "list" => self.open_course_list(),
             _ => {}
         }
     }
@@ -505,7 +554,17 @@ impl App {
             }
             Screen::ConfigWizard => {
                 if let Some(ref state) = self.config_wizard {
-                    crate::ui::config_wizard::render_config_wizard(frame, state, self.cursor_visible);
+                    crate::ui::config_wizard::render_config_wizard(
+                        frame,
+                        state,
+                        self.cursor_visible,
+                    );
+                }
+            }
+            Screen::CourseList => {
+                crate::ui::study::render_study(frame, &self.study, self.cursor_visible);
+                if let Some(ref state) = self.course_list {
+                    crate::ui::course_list::render_course_list(frame, state);
                 }
             }
         }
@@ -579,8 +638,52 @@ impl App {
         }
     }
 
+    fn handle_course_list_key(&mut self, key: KeyEvent) {
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            self.quit();
+            return;
+        }
+        match key.code {
+            KeyCode::Esc => {
+                self.course_list = None;
+                self.screen = Screen::Study;
+            }
+            KeyCode::Up => {
+                if let Some(s) = &mut self.course_list {
+                    s.select_prev();
+                }
+            }
+            KeyCode::Down => {
+                if let Some(s) = &mut self.course_list {
+                    s.select_next();
+                }
+            }
+            KeyCode::PageUp => {
+                if let Some(s) = &mut self.course_list {
+                    s.page_up(5);
+                }
+            }
+            KeyCode::PageDown => {
+                if let Some(s) = &mut self.course_list {
+                    s.page_down(5);
+                }
+            }
+            KeyCode::Enter => {
+                let chosen_id = self
+                    .course_list
+                    .as_ref()
+                    .and_then(|s| s.selected_item())
+                    .map(|i| i.meta.id.clone());
+                if let Some(id) = chosen_id {
+                    self.switch_to_course(id);
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn spawn_connectivity_test(&mut self) {
-        use crate::ui::config_wizard::{TestingState, probe_llm};
+        use crate::ui::config_wizard::{probe_llm, TestingState};
         use crate::ui::task_msg::WizardTaskMsg;
 
         let llm = match self.config_wizard.as_ref() {
@@ -607,7 +710,9 @@ impl App {
         use crate::ui::error_banner::user_message;
         use crate::ui::task_msg::WizardTaskMsg;
 
-        let Some(wizard) = self.config_wizard.as_mut() else { return };
+        let Some(wizard) = self.config_wizard.as_mut() else {
+            return;
+        };
         wizard.testing = None;
 
         match msg {

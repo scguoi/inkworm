@@ -11,7 +11,7 @@ pub const COMMANDS: &[Command] = &[
     Command { name: "skip", aliases: &[], description: "Skip current drill", available: true },
     Command { name: "help", aliases: &[], description: "Show command list", available: true },
     Command { name: "import", aliases: &[], description: "Create a new course", available: true },
-    Command { name: "list", aliases: &[], description: "Browse courses", available: false },
+    Command { name: "list", aliases: &[], description: "Browse courses", available: true },
     Command { name: "config", aliases: &[], description: "Configuration wizard", available: true },
     Command { name: "tts", aliases: &[], description: "TTS settings", available: false },
     Command { name: "delete", aliases: &[], description: "Delete current course", available: true },
