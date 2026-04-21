@@ -3,6 +3,11 @@
 
 use std::time::Duration;
 
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use ratatui::Frame;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::{Config, LlmConfig};
@@ -212,6 +217,59 @@ pub fn wizard_hint(step: WizardStep, origin: WizardOrigin, testing: bool) -> &'s
     }
 }
 
+pub fn render_config_wizard(frame: &mut Frame, state: &WizardState, cursor_visible: bool) {
+    let area = frame.area();
+
+    let title = wizard_title(state.step);
+    let label = wizard_step_label(state.step);
+    let rendered_input = mask_for_display(&state.input, state.step);
+    let cursor_glyph = if cursor_visible { "_" } else { " " };
+    let hint = wizard_hint(state.step, state.origin, state.testing.is_some());
+
+    let has_error = state.error.is_some();
+    let block_height: u16 = if has_error { 8 } else { 6 };
+    let top = area.height.saturating_sub(block_height) / 2;
+    let left = area.width / 5;
+    let width = area.width.saturating_sub(left * 2);
+
+    let title_line = Paragraph::new(Span::styled(
+        title,
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    ));
+    frame.render_widget(title_line, Rect::new(left, top, width, 1));
+
+    let label_line = Paragraph::new(Span::styled(
+        label,
+        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+    ));
+    frame.render_widget(label_line, Rect::new(left, top + 2, width, 1));
+
+    let input_line = Paragraph::new(Line::from(vec![
+        Span::styled("> ", Style::default().fg(Color::DarkGray)),
+        Span::styled(rendered_input, Style::default().fg(Color::White)),
+        Span::styled(cursor_glyph, Style::default().fg(Color::White)),
+    ]));
+    frame.render_widget(input_line, Rect::new(left, top + 3, width, 1));
+
+    let hint_line = Paragraph::new(Span::styled(hint, Style::default().fg(Color::DarkGray)));
+    frame.render_widget(hint_line, Rect::new(left, top + 5, width, 1));
+
+    if let Some(ref err) = state.error {
+        let color = match err.severity {
+            crate::ui::error_banner::Severity::Error => Color::Red,
+            crate::ui::error_banner::Severity::Warning => Color::Yellow,
+            crate::ui::error_banner::Severity::Info => Color::Blue,
+        };
+        let err_line = Paragraph::new(Span::styled(
+            err.headline.clone(),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ));
+        frame.render_widget(err_line, Rect::new(left, top + 7, width, 1));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -401,66 +459,5 @@ mod tests {
     fn hint_during_testing_mentions_connectivity() {
         let h = wizard_hint(WizardStep::Model, WizardOrigin::FirstRun, true);
         assert!(h.to_lowercase().contains("testing"));
-    }
-}
-
-use ratatui::{
-    layout::Rect,
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::Paragraph,
-    Frame,
-};
-
-pub fn render_config_wizard(frame: &mut Frame, state: &WizardState, cursor_visible: bool) {
-    let area = frame.area();
-
-    let title = wizard_title(state.step);
-    let label = wizard_step_label(state.step);
-    let rendered_input = mask_for_display(&state.input, state.step);
-    let cursor_glyph = if cursor_visible { "_" } else { " " };
-    let hint = wizard_hint(state.step, state.origin, state.testing.is_some());
-
-    let has_error = state.error.is_some();
-    let block_height: u16 = if has_error { 8 } else { 6 };
-    let top = area.height.saturating_sub(block_height) / 2;
-    let left = area.width / 5;
-    let width = area.width.saturating_sub(left * 2);
-
-    let title_line = Paragraph::new(Span::styled(
-        title,
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD),
-    ));
-    frame.render_widget(title_line, Rect::new(left, top, width, 1));
-
-    let label_line = Paragraph::new(Span::styled(
-        label,
-        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
-    ));
-    frame.render_widget(label_line, Rect::new(left, top + 2, width, 1));
-
-    let input_line = Paragraph::new(Line::from(vec![
-        Span::styled("> ", Style::default().fg(Color::DarkGray)),
-        Span::styled(rendered_input, Style::default().fg(Color::White)),
-        Span::styled(cursor_glyph, Style::default().fg(Color::White)),
-    ]));
-    frame.render_widget(input_line, Rect::new(left, top + 3, width, 1));
-
-    let hint_line = Paragraph::new(Span::styled(hint, Style::default().fg(Color::DarkGray)));
-    frame.render_widget(hint_line, Rect::new(left, top + 5, width, 1));
-
-    if let Some(ref err) = state.error {
-        let color = match err.severity {
-            crate::ui::error_banner::Severity::Error => Color::Red,
-            crate::ui::error_banner::Severity::Warning => Color::Yellow,
-            crate::ui::error_banner::Severity::Info => Color::Blue,
-        };
-        let err_line = Paragraph::new(Span::styled(
-            err.headline.clone(),
-            Style::default().fg(color).add_modifier(Modifier::BOLD),
-        ));
-        frame.render_widget(err_line, Rect::new(left, top + 7, width, 1));
     }
 }
