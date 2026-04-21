@@ -6,7 +6,7 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum LlmError {
     #[error("network error: {0}")]
-    Network(#[from] reqwest::Error),
+    Network(reqwest::Error),
     #[error("request timed out after {0:?}")]
     Timeout(Duration),
     #[error("unauthorized (check API key)")]
