@@ -238,7 +238,9 @@ impl App {
                 }
                 if !self.should_quit {
                     self.palette = None;
-                    self.screen = Screen::Study;
+                    if matches!(self.screen, Screen::Palette) {
+                        self.screen = Screen::Study;
+                    }
                 }
             }
             _ => {}
