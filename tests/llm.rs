@@ -339,3 +339,192 @@ mod reflexion_phase1 {
         );
     }
 }
+
+mod reflexion_phase2 {
+    use super::common::llm_mocks::envelope;
+    use super::common::TestEnv;
+    use chrono::{TimeZone, Utc};
+    use inkworm::clock::FixedClock;
+    use inkworm::llm::client::ReqwestClient;
+    use inkworm::llm::reflexion::{Reflexion, ReflexionError};
+    use inkworm::llm::types::RawSentence;
+    use inkworm::storage::paths::DataPaths;
+    use std::time::Duration;
+    use tokio_util::sync::CancellationToken;
+    use wiremock::matchers::{body_string_contains, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn ok_drills(english: &str) -> String {
+        format!(
+            r#"{{
+                "drills": [
+                    {{"stage": 1, "focus": "keywords", "chinese": "关键", "english": "a b", "soundmark": ""}},
+                    {{"stage": 2, "focus": "skeleton", "chinese": "骨架", "english": "a b c", "soundmark": ""}},
+                    {{"stage": 3, "focus": "full", "chinese": "完整", "english": "{english}", "soundmark": ""}}
+                ]
+            }}"#
+        )
+    }
+
+    fn five_sentences() -> Vec<RawSentence> {
+        (0..5)
+            .map(|i| RawSentence {
+                chinese: format!("句{i}"),
+                english: format!("sentence number {i} here"),
+            })
+            .collect()
+    }
+
+    fn make(env: &TestEnv, server: &MockServer) -> (DataPaths, FixedClock, ReqwestClient) {
+        let paths = DataPaths::resolve(Some(&env.home)).unwrap();
+        paths.ensure_dirs().unwrap();
+        let clock = FixedClock(Utc.with_ymd_and_hms(2026, 4, 21, 10, 0, 0).unwrap());
+        let client = ReqwestClient::new(server.uri(), "sk-test", Duration::from_secs(5)).unwrap();
+        (paths, clock, client)
+    }
+
+    #[tokio::test]
+    async fn phase2_all_ok() {
+        let env = TestEnv::new();
+        let server = MockServer::start().await;
+        let sentences = five_sentences();
+        for s in &sentences {
+            Mock::given(method("POST"))
+                .and(path("/chat/completions"))
+                .and(body_string_contains(&s.english as &str))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(envelope(&ok_drills(&s.english))),
+                )
+                .up_to_n_times(1)
+                .expect(1)
+                .named(format!("drill-{}", s.english))
+                .mount(&server)
+                .await;
+        }
+        let (paths, clock, client) = make(&env, &server);
+        let r = Reflexion {
+            client: &client,
+            clock: &clock,
+            paths: &paths,
+            model: "m",
+            max_concurrent: 3,
+            cancel: CancellationToken::new(),
+        };
+        let outs = r.orchestrate_phase2(&sentences).await.unwrap();
+        assert_eq!(outs.len(), 5);
+        for o in &outs {
+            assert_eq!(o.drills.len(), 3);
+        }
+    }
+
+    #[tokio::test]
+    async fn phase2_one_sentence_failure_fails_the_whole_run() {
+        let env = TestEnv::new();
+        let server = MockServer::start().await;
+        let sentences = five_sentences();
+        // 4 sentences respond fine (match by their unique english substring).
+        for s in sentences.iter().take(4) {
+            Mock::given(method("POST"))
+                .and(path("/chat/completions"))
+                .and(body_string_contains(&s.english as &str))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(envelope(&ok_drills(&s.english))),
+                )
+                .up_to_n_times(1)
+                .expect(1)
+                .named(format!("ok-{}", s.english))
+                .mount(&server)
+                .await;
+        }
+        // The 5th sentence's prompt (which contains "sentence number 4 here") fails 3x.
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .and(body_string_contains("sentence number 4 here"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(envelope("not json")))
+            .expect(3)
+            .named("bad-sentence-4")
+            .mount(&server)
+            .await;
+        let (paths, clock, client) = make(&env, &server);
+        let r = Reflexion {
+            client: &client,
+            clock: &clock,
+            paths: &paths,
+            model: "m",
+            max_concurrent: 5,
+            cancel: CancellationToken::new(),
+        };
+        let err = r.orchestrate_phase2(&sentences).await.unwrap_err();
+        match err {
+            ReflexionError::AllAttemptsFailed {
+                phase,
+                sentence_index,
+                ..
+            } => {
+                assert_eq!(phase, 2);
+                assert_eq!(sentence_index, Some(4));
+            }
+            other => panic!("expected AllAttemptsFailed phase=2, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn phase2_rejects_last_english_mismatch() {
+        let env = TestEnv::new();
+        let server = MockServer::start().await;
+        let sentences = five_sentences();
+        // For sentence 0, the drill returns english "WRONG" on the last drill,
+        // causing RawDrills::validate to flag the mismatch — and after 3
+        // failures the whole run errors.
+        let bad = r#"{
+          "drills": [
+            {"stage": 1, "focus": "keywords", "chinese": "关键", "english": "a b", "soundmark": ""},
+            {"stage": 2, "focus": "skeleton", "chinese": "骨架", "english": "a b c", "soundmark": ""},
+            {"stage": 3, "focus": "full", "chinese": "完整", "english": "WRONG", "soundmark": ""}
+          ]
+        }"#;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .and(body_string_contains("sentence number 0 here"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(envelope(bad)))
+            .expect(3)
+            .named("mismatch")
+            .mount(&server)
+            .await;
+        // The other 4 succeed on first try.
+        for s in sentences.iter().skip(1) {
+            Mock::given(method("POST"))
+                .and(path("/chat/completions"))
+                .and(body_string_contains(&s.english as &str))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(envelope(&ok_drills(&s.english))),
+                )
+                .up_to_n_times(1)
+                .expect(1)
+                .named(format!("ok-{}", s.english))
+                .mount(&server)
+                .await;
+        }
+        let (paths, clock, client) = make(&env, &server);
+        let r = Reflexion {
+            client: &client,
+            clock: &clock,
+            paths: &paths,
+            model: "m",
+            max_concurrent: 5,
+            cancel: CancellationToken::new(),
+        };
+        let err = r.orchestrate_phase2(&sentences).await.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ReflexionError::AllAttemptsFailed {
+                    phase: 2,
+                    sentence_index: Some(0),
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
+    }
+}
