@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 2,
+  "id": "2026-04-21-ted-ai",
+  "title": "TED: What AI Means for Work",
+  "description": "节选自 TED 演讲开场段",
+  "source": {
+    "type": "article",
+    "url": "",
+    "createdAt": "2026-04-21T10:12:00Z",
+    "model": "gpt-4o-mini"
+  },
+  "sentences": [
+    {
+      "order": 1,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "人工智能 想 每天", "english": "AI think day", "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/" },
+        { "stage": 2, "focus": "skeleton", "chinese": "我想人工智能", "english": "I think about AI", "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/" },
+        { "stage": 3, "focus": "skeleton", "chinese": "我每天都在想人工智能", "english": "I think about AI every day", "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/" }
+      ]
+    },
+    {
+      "order": 2,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "工作 改变", "english": "work change", "soundmark": "/wɜːrk/ /tʃeɪndʒ/" },
+        { "stage": 2, "focus": "skeleton", "chinese": "人工智能改变工作", "english": "AI changes work", "soundmark": "" },
+        { "stage": 3, "focus": "full", "chinese": "人工智能正在改变我们的工作方式", "english": "AI is changing the way we work", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 3,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "学习 速度", "english": "learn fast", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "我们学得快", "english": "We learn fast", "soundmark": "" },
+        { "stage": 3, "focus": "full", "chinese": "我们学得比以前快", "english": "We learn faster than before", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 4,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "决定", "english": "make decisions", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "我们做决定", "english": "We make decisions", "soundmark": "" },
+        { "stage": 3, "focus": "full", "chinese": "我们必须做出明智的决定", "english": "We must make wise decisions", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 5,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "未来", "english": "future human", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "未来是人类的", "english": "Future belongs to humans", "soundmark": "" },
+        { "stage": 3, "focus": "full", "chinese": "未来属于那些善用 AI 的人", "english": "The future belongs to those who use AI wisely", "soundmark": "" }
+      ]
+    }
+  ]
+}

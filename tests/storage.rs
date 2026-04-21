@@ -137,3 +137,174 @@ mod course_schema {
             .all(|s| s.drills.iter().all(|d| d.soundmark.is_empty())));
     }
 }
+
+mod course_bad {
+    use inkworm::storage::course::{Course, ValidationError};
+
+    fn load(name: &str) -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures/courses")
+            .join(name);
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path:?}: {e}"))
+    }
+
+    fn parse(name: &str) -> Course {
+        let json = load(name);
+        serde_json::from_str(&json).unwrap_or_else(|e| panic!("parse {name}: {e}"))
+    }
+
+    #[test]
+    fn wrong_schema_version_reported() {
+        let errs = parse("bad/schema_version_wrong.json").validate();
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ValidationError::WrongSchemaVersion { .. })),
+            "{errs:#?}"
+        );
+    }
+
+    #[test]
+    fn sentences_too_few_reported() {
+        let errs = parse("bad/sentences_too_few.json").validate();
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ValidationError::SentencesCount(4))),
+            "{errs:#?}"
+        );
+    }
+
+    #[test]
+    fn sentences_too_many_reported() {
+        let errs = parse("bad/sentences_too_many.json").validate();
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ValidationError::SentencesCount(21))),
+            "{errs:#?}"
+        );
+    }
+
+    #[test]
+    fn drills_too_few_reported() {
+        let errs = parse("bad/drills_too_few.json").validate();
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ValidationError::DrillsCount { count: 2, .. })),
+            "{errs:#?}"
+        );
+    }
+
+    #[test]
+    fn drills_too_many_reported() {
+        let errs = parse("bad/drills_too_many.json").validate();
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ValidationError::DrillsCount { count: 6, .. })),
+            "{errs:#?}"
+        );
+    }
+
+    #[test]
+    fn last_drill_not_full_reported() {
+        let errs = parse("bad/last_drill_not_full.json").validate();
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ValidationError::LastDrillNotFull { .. })),
+            "{errs:#?}"
+        );
+    }
+
+    #[test]
+    fn stage_not_monotonic_reported() {
+        let errs = parse("bad/stage_not_monotonic.json").validate();
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ValidationError::DrillStage { .. })),
+            "{errs:#?}"
+        );
+    }
+
+    #[test]
+    fn order_not_monotonic_reported() {
+        let errs = parse("bad/order_not_monotonic.json").validate();
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ValidationError::SentenceOrder { .. })),
+            "{errs:#?}"
+        );
+    }
+
+    #[test]
+    fn chinese_too_long_reported() {
+        let errs = parse("bad/chinese_too_long.json").validate();
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ValidationError::ChineseLength { .. })),
+            "{errs:#?}"
+        );
+    }
+
+    #[test]
+    fn invalid_focus_fails_to_deserialize() {
+        let json = load("bad/invalid_focus.json");
+        let r: Result<Course, _> = serde_json::from_str(&json);
+        assert!(r.is_err(), "expected deserialize failure");
+    }
+
+    #[test]
+    fn invalid_soundmark_reported() {
+        let errs = parse("bad/invalid_soundmark.json").validate();
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ValidationError::SoundmarkFormat { .. })),
+            "{errs:#?}"
+        );
+    }
+
+    #[test]
+    fn empty_title_reported() {
+        let errs = parse("bad/empty_title.json").validate();
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ValidationError::TitleLength(0))),
+            "{errs:#?}"
+        );
+    }
+
+    #[test]
+    fn validation_returns_all_errors_not_just_first() {
+        // Construct a course with multiple simultaneous violations and assert
+        // that validate() reports all of them, not just the first encountered.
+        use chrono::Utc;
+        use inkworm::storage::course::{Source, SourceKind};
+
+        let c = Course {
+            schema_version: 2,
+            id: "multi-error-test".into(),
+            title: String::new(), // → TitleLength(0)
+            description: None,
+            source: Source {
+                kind: SourceKind::Article,
+                url: String::new(),
+                created_at: Utc::now(),
+                model: "test".into(),
+            },
+            sentences: vec![], // → SentencesCount(0)
+        };
+        let errs = c.validate();
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ValidationError::TitleLength(0))),
+            "missing TitleLength; got {errs:#?}"
+        );
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ValidationError::SentencesCount(0))),
+            "missing SentencesCount; got {errs:#?}"
+        );
+        assert!(
+            errs.len() >= 2,
+            "expected ≥2 errors, got {}: {errs:#?}",
+            errs.len()
+        );
+    }
+}

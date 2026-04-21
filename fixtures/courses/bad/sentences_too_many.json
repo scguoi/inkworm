@@ -1,0 +1,560 @@
+{
+  "schemaVersion": 2,
+  "id": "2026-04-21-ted-ai",
+  "title": "TED: What AI Means for Work",
+  "description": "节选自 TED 演讲开场段",
+  "source": {
+    "type": "article",
+    "url": "",
+    "createdAt": "2026-04-21T10:12:00Z",
+    "model": "gpt-4o-mini"
+  },
+  "sentences": [
+    {
+      "order": 1,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 2,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 3,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 4,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 5,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 6,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 7,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 8,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 9,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 10,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 11,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 12,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 13,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 14,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 15,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 16,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 17,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 18,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 19,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 20,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    },
+    {
+      "order": 21,
+      "drills": [
+        {
+          "stage": 1,
+          "focus": "keywords",
+          "chinese": "人工智能 想 每天",
+          "english": "AI think day",
+          "soundmark": "/ˌeɪˈaɪ/ /θɪŋk/ /deɪ/"
+        },
+        {
+          "stage": 2,
+          "focus": "skeleton",
+          "chinese": "我想人工智能",
+          "english": "I think about AI",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/"
+        },
+        {
+          "stage": 3,
+          "focus": "full",
+          "chinese": "我每天都在想人工智能",
+          "english": "I think about AI every day",
+          "soundmark": "/aɪ/ /θɪŋk/ /əˈbaʊt/ /ˌeɪˈaɪ/ /ˈevri/ /deɪ/"
+        }
+      ]
+    }
+  ]
+}
