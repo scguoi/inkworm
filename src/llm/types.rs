@@ -53,6 +53,123 @@ pub struct ChatResponseMessage {
     pub content: String,
 }
 
+use crate::storage::course::Focus;
+
+/// Phase 1 output shape: what the LLM must return when splitting an article.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct RawSentences {
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    pub sentences: Vec<RawSentence>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct RawSentence {
+    pub chinese: String,
+    pub english: String,
+}
+
+/// Phase 2 output shape: what the LLM must return when expanding one sentence
+/// into drills.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct RawDrills {
+    pub drills: Vec<RawDrill>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct RawDrill {
+    pub stage: u32,
+    pub focus: Focus,
+    pub chinese: String,
+    pub english: String,
+    #[serde(default)]
+    pub soundmark: String,
+}
+
+impl RawSentences {
+    /// Collect ALL validation errors (empty Vec = valid).
+    pub fn validate(&self) -> Vec<String> {
+        let mut errs = Vec::new();
+        let title_len = self.title.chars().count();
+        if title_len == 0 || title_len > 100 {
+            errs.push(format!("title length must be 1..=100, got {title_len}"));
+        }
+        let desc_len = self.description.chars().count();
+        if desc_len > 300 {
+            errs.push(format!("description length must be ≤300, got {desc_len}"));
+        }
+        let n = self.sentences.len();
+        if !(5..=20).contains(&n) {
+            errs.push(format!("sentences length must be 5..=20, got {n}"));
+        }
+        for (i, s) in self.sentences.iter().enumerate() {
+            let clen = s.chinese.chars().count();
+            if !(1..=200).contains(&clen) {
+                errs.push(format!(
+                    "sentences[{i}].chinese length must be 1..=200, got {clen}"
+                ));
+            }
+            let words = s.english.split_whitespace().count();
+            if !(1..=50).contains(&words) {
+                errs.push(format!(
+                    "sentences[{i}].english word count must be 1..=50, got {words}"
+                ));
+            }
+        }
+        errs
+    }
+}
+
+impl RawDrills {
+    /// Collect ALL validation errors. `reference_english` is the Phase 1
+    /// english string this drill-set is supposed to expand; the last drill's
+    /// english must match it.
+    pub fn validate(&self, reference_english: &str) -> Vec<String> {
+        let mut errs = Vec::new();
+        let n = self.drills.len();
+        if !(3..=5).contains(&n) {
+            errs.push(format!("drills length must be 3..=5, got {n}"));
+        }
+        for (j, d) in self.drills.iter().enumerate() {
+            let expected_stage = (j as u32) + 1;
+            if d.stage != expected_stage {
+                errs.push(format!(
+                    "drills[{j}].stage must be {expected_stage}, got {}",
+                    d.stage
+                ));
+            }
+            let clen = d.chinese.chars().count();
+            if !(1..=200).contains(&clen) {
+                errs.push(format!(
+                    "drills[{j}].chinese length must be 1..=200, got {clen}"
+                ));
+            }
+            let words = d.english.split_whitespace().count();
+            if !(1..=50).contains(&words) {
+                errs.push(format!(
+                    "drills[{j}].english word count must be 1..=50, got {words}"
+                ));
+            }
+        }
+        if let Some(last) = self.drills.last() {
+            if last.focus != Focus::Full {
+                errs.push(format!(
+                    "last drill focus must be \"full\", got \"{:?}\"",
+                    last.focus
+                ));
+            }
+            if last.english.trim() != reference_english.trim() {
+                errs.push(format!(
+                    "last drill english must match reference exactly; got {:?}, expected {:?}",
+                    last.english, reference_english
+                ));
+            }
+        }
+        errs
+    }
+}
+
 impl ChatRequest {
     pub fn system_and_user(model: impl Into<String>, system: String, user: String) -> Self {
         Self {
@@ -127,5 +244,134 @@ mod tests {
         assert!(!s.contains("temperature"));
         assert!(!s.contains("max_tokens"));
         assert!(!s.contains("response_format"));
+    }
+
+    #[test]
+    fn raw_sentences_minimum_valid() {
+        let rs = RawSentences {
+            title: "T".into(),
+            description: "".into(),
+            sentences: (0..5)
+                .map(|_| RawSentence {
+                    chinese: "中".into(),
+                    english: "two words here".into(),
+                })
+                .collect(),
+        };
+        assert!(rs.validate().is_empty());
+    }
+
+    #[test]
+    fn raw_sentences_too_few_flagged() {
+        let rs = RawSentences {
+            title: "T".into(),
+            description: "".into(),
+            sentences: (0..4)
+                .map(|_| RawSentence {
+                    chinese: "中".into(),
+                    english: "two words".into(),
+                })
+                .collect(),
+        };
+        let errs = rs.validate();
+        assert!(errs.iter().any(|e| e.contains("sentences length")));
+    }
+
+    #[test]
+    fn raw_drills_last_full_required() {
+        use crate::storage::course::Focus;
+        let rd = RawDrills {
+            drills: vec![
+                RawDrill {
+                    stage: 1,
+                    focus: Focus::Keywords,
+                    chinese: "中".into(),
+                    english: "one two".into(),
+                    soundmark: "".into(),
+                },
+                RawDrill {
+                    stage: 2,
+                    focus: Focus::Skeleton,
+                    chinese: "中".into(),
+                    english: "one two three".into(),
+                    soundmark: "".into(),
+                },
+                RawDrill {
+                    stage: 3,
+                    focus: Focus::Clause,
+                    chinese: "中".into(),
+                    english: "one two three four".into(),
+                    soundmark: "".into(),
+                },
+            ],
+        };
+        let errs = rd.validate("one two three four");
+        assert!(
+            errs.iter().any(|e| e.contains("last drill focus")),
+            "{errs:#?}"
+        );
+    }
+
+    #[test]
+    fn raw_drills_english_mismatch_flagged() {
+        use crate::storage::course::Focus;
+        let rd = RawDrills {
+            drills: vec![
+                RawDrill {
+                    stage: 1,
+                    focus: Focus::Keywords,
+                    chinese: "中".into(),
+                    english: "a b".into(),
+                    soundmark: "".into(),
+                },
+                RawDrill {
+                    stage: 2,
+                    focus: Focus::Skeleton,
+                    chinese: "中".into(),
+                    english: "a b c".into(),
+                    soundmark: "".into(),
+                },
+                RawDrill {
+                    stage: 3,
+                    focus: Focus::Full,
+                    chinese: "中".into(),
+                    english: "different sentence here".into(),
+                    soundmark: "".into(),
+                },
+            ],
+        };
+        let errs = rd.validate("expected reference sentence");
+        assert!(errs.iter().any(|e| e.contains("match reference")));
+    }
+
+    #[test]
+    fn raw_drills_minimum_valid() {
+        use crate::storage::course::Focus;
+        let rd = RawDrills {
+            drills: vec![
+                RawDrill {
+                    stage: 1,
+                    focus: Focus::Keywords,
+                    chinese: "中".into(),
+                    english: "a b".into(),
+                    soundmark: "".into(),
+                },
+                RawDrill {
+                    stage: 2,
+                    focus: Focus::Skeleton,
+                    chinese: "中".into(),
+                    english: "a b c".into(),
+                    soundmark: "".into(),
+                },
+                RawDrill {
+                    stage: 3,
+                    focus: Focus::Full,
+                    chinese: "中".into(),
+                    english: "exact ref".into(),
+                    soundmark: "".into(),
+                },
+            ],
+        };
+        assert!(rd.validate("exact ref").is_empty());
     }
 }
