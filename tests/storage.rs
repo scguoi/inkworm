@@ -441,3 +441,81 @@ mod course_crud {
         assert_eq!(metas.len(), 1);
     }
 }
+
+mod progress {
+    use super::common::TestEnv;
+    use chrono::{TimeZone, Utc};
+    use inkworm::storage::course::Course;
+    use inkworm::storage::progress::{course_stats, CourseProgress, DrillProgress, Progress};
+
+    fn fixture_minimal() -> Course {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures/courses/good/minimal.json");
+        let json = std::fs::read_to_string(&path).unwrap();
+        serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn load_missing_returns_empty() {
+        let env = TestEnv::new();
+        let p = Progress::load(&env.home.join("progress.json")).unwrap();
+        assert_eq!(p.courses.len(), 0);
+        assert_eq!(p.schema_version, 1);
+    }
+
+    #[test]
+    fn save_then_load_round_trips() {
+        let env = TestEnv::new();
+        let path = env.home.join("progress.json");
+
+        let mut p = Progress::empty();
+        p.active_course_id = Some("c1".into());
+        let cp = p.course_mut("c1");
+        cp.last_studied_at = Utc.with_ymd_and_hms(2026, 4, 21, 12, 0, 0).unwrap();
+        let sp = cp.sentences.entry("1".into()).or_default();
+        sp.drills.insert(
+            "1".into(),
+            DrillProgress {
+                mastered_count: 3,
+                last_correct_at: Some(Utc.with_ymd_and_hms(2026, 4, 21, 12, 0, 0).unwrap()),
+            },
+        );
+        p.save(&path).unwrap();
+
+        let loaded = Progress::load(&path).unwrap();
+        assert_eq!(loaded, p);
+    }
+
+    #[test]
+    fn course_stats_total_matches_drills_sum() {
+        let c = fixture_minimal();
+        let stats = course_stats(&c, None);
+        let expected: usize = c.sentences.iter().map(|s| s.drills.len()).sum();
+        assert_eq!(stats.total_drills, expected);
+        assert_eq!(stats.completed_drills, 0);
+        assert_eq!(stats.percent(), 0);
+    }
+
+    #[test]
+    fn course_stats_counts_mastered_drills() {
+        let c = fixture_minimal();
+        let mut cp = CourseProgress::default();
+        let sp = cp.sentences.entry("1".into()).or_default();
+        sp.drills.insert(
+            "1".into(),
+            DrillProgress {
+                mastered_count: 2,
+                last_correct_at: None,
+            },
+        );
+        sp.drills.insert(
+            "2".into(),
+            DrillProgress {
+                mastered_count: 0,
+                last_correct_at: None,
+            },
+        );
+        let stats = course_stats(&c, Some(&cp));
+        assert_eq!(stats.completed_drills, 1);
+    }
+}
