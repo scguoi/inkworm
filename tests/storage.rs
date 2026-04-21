@@ -63,3 +63,33 @@ mod paths {
         assert_eq!(paths.log_file, env.home.join("inkworm.log"));
     }
 }
+
+mod atomic_write {
+    use super::common::TestEnv;
+    use inkworm::storage::atomic::write_atomic;
+
+    #[test]
+    fn writes_full_content() {
+        let env = TestEnv::new();
+        let p = env.home.join("a.txt");
+        write_atomic(&p, b"hello").expect("write");
+        assert_eq!(std::fs::read(&p).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn overwrites_existing_file() {
+        let env = TestEnv::new();
+        let p = env.home.join("a.txt");
+        std::fs::write(&p, b"old").unwrap();
+        write_atomic(&p, b"new").expect("write");
+        assert_eq!(std::fs::read(&p).unwrap(), b"new");
+    }
+
+    #[test]
+    fn creates_missing_parent_dir() {
+        let env = TestEnv::new();
+        let p = env.home.join("deep").join("nested").join("f.json");
+        write_atomic(&p, b"{}").expect("write");
+        assert!(p.is_file());
+    }
+}
