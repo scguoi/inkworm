@@ -515,6 +515,7 @@ impl App {
                     self.screen = Screen::DeleteConfirm;
                 }
             }
+            "list" => self.open_course_list(),
             _ => {}
         }
     }
