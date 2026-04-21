@@ -5,6 +5,7 @@ use crate::storage::course::Course;
 #[derive(Debug)]
 pub enum TaskMsg {
     Generate(GenerateProgress),
+    Wizard(WizardTaskMsg),
 }
 
 /// Progress updates from the Generate background task.
@@ -15,4 +16,11 @@ pub enum GenerateProgress {
     Phase2Progress { done: usize, total: usize },
     Done(Course),
     Failed(AppError),
+}
+
+/// Result from the ConfigWizard connectivity probe.
+#[derive(Debug)]
+pub enum WizardTaskMsg {
+    ConnectivityOk,
+    ConnectivityFailed(AppError),
 }

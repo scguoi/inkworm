@@ -95,6 +95,7 @@ impl App {
     pub fn on_task_msg(&mut self, msg: TaskMsg) {
         match msg {
             TaskMsg::Generate(progress) => self.handle_generate_progress(progress),
+            TaskMsg::Wizard(_) => {} // placeholder — wired up in Task 5
         }
     }
 

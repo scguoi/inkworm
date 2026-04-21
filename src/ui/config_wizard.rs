@@ -1,9 +1,14 @@
 //! Config wizard: 3-step first-run / `/config` flow for LLM endpoint / api_key / model.
 //! Connectivity probe and rendering live in this file (probe in §Probe block, render in §Render block).
 
+use std::time::Duration;
+
 use tokio_util::sync::CancellationToken;
 
-use crate::config::Config;
+use crate::config::{Config, LlmConfig};
+use crate::error::AppError;
+use crate::llm::client::{LlmClient, ReqwestClient};
+use crate::llm::types::{ChatMessage, ChatRequest, Role};
 use crate::ui::error_banner::UserMessage;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,9 +143,39 @@ impl WizardState {
     }
 }
 
+/// Fire a minimal 1-token chat request to verify credentials and model work.
+/// Maps any LlmError into AppError. Cancellation via the token returns
+/// AppError::Cancelled.
+pub async fn probe_llm(llm: LlmConfig, cancel: CancellationToken) -> Result<(), AppError> {
+    let client = ReqwestClient::new(
+        llm.base_url.clone(),
+        llm.api_key.clone(),
+        Duration::from_secs(llm.request_timeout_secs),
+    )?;
+
+    let req = ChatRequest {
+        model: llm.model.clone(),
+        messages: vec![ChatMessage {
+            role: Role::User,
+            content: "ping".into(),
+        }],
+        temperature: Some(0.0),
+        max_tokens: Some(1),
+        response_format: None,
+    };
+
+    match client.chat(req, cancel).await {
+        Ok(_content) => Ok(()),
+        Err(crate::llm::error::LlmError::Cancelled) => Err(AppError::Cancelled),
+        Err(e) => Err(AppError::Llm(e)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     fn new_wiz() -> WizardState {
         WizardState::new(WizardOrigin::FirstRun, Config::default())
@@ -229,5 +264,52 @@ mod tests {
         assert!(w.error.is_some());
         w.backspace();
         assert!(w.error.is_none());
+    }
+
+    #[tokio::test]
+    async fn probe_llm_ok_on_200() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "choices": [{"message": {"role":"assistant","content":"pong"}}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let llm = LlmConfig {
+            base_url: server.uri(),
+            api_key: "sk-test".into(),
+            model: "gpt-4o-mini".into(),
+            request_timeout_secs: 5,
+            reflexion_budget_secs: 60,
+        };
+        let res = probe_llm(llm, CancellationToken::new()).await;
+        assert!(res.is_ok(), "{res:?}");
+    }
+
+    #[tokio::test]
+    async fn probe_llm_maps_401_to_llm_unauthorized() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(401).set_body_string("no"))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let llm = LlmConfig {
+            base_url: server.uri(),
+            api_key: "sk-test".into(),
+            model: "gpt-4o-mini".into(),
+            request_timeout_secs: 5,
+            reflexion_budget_secs: 60,
+        };
+        let err = probe_llm(llm, CancellationToken::new()).await.unwrap_err();
+        assert!(
+            matches!(err, AppError::Llm(crate::llm::error::LlmError::Unauthorized)),
+            "{err:?}"
+        );
     }
 }
