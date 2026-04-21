@@ -138,3 +138,204 @@ mod prompts {
         insta::assert_snapshot!("repair_template", REPAIR_TEMPLATE);
     }
 }
+
+mod reflexion_phase1 {
+    use super::common::llm_mocks::envelope;
+    use super::common::TestEnv;
+    use chrono::{TimeZone, Utc};
+    use inkworm::clock::FixedClock;
+    use inkworm::llm::client::ReqwestClient;
+    use inkworm::llm::reflexion::{Reflexion, ReflexionError};
+    use inkworm::storage::paths::DataPaths;
+    use std::time::Duration;
+    use tokio_util::sync::CancellationToken;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn make(env: &TestEnv, server: &MockServer) -> (DataPaths, FixedClock, ReqwestClient) {
+        let paths = DataPaths::resolve(Some(&env.home)).unwrap();
+        paths.ensure_dirs().unwrap();
+        let clock = FixedClock(Utc.with_ymd_and_hms(2026, 4, 21, 10, 0, 0).unwrap());
+        let client = ReqwestClient::new(server.uri(), "sk-test", Duration::from_secs(5)).unwrap();
+        (paths, clock, client)
+    }
+
+    fn ok_phase1() -> &'static str {
+        r#"{
+          "title": "AI at work",
+          "description": "",
+          "sentences": [
+            {"chinese": "一", "english": "one two three"},
+            {"chinese": "二", "english": "four five six"},
+            {"chinese": "三", "english": "seven eight nine"},
+            {"chinese": "四", "english": "ten eleven twelve"},
+            {"chinese": "五", "english": "thirteen fourteen fifteen"}
+          ]
+        }"#
+    }
+
+    #[tokio::test]
+    async fn phase1_happy_path() {
+        let env = TestEnv::new();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(envelope(ok_phase1())))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let (paths, clock, client) = make(&env, &server);
+        let r = Reflexion {
+            client: &client,
+            clock: &clock,
+            paths: &paths,
+            model: "gpt-4o-mini",
+            max_concurrent: 5,
+            cancel: CancellationToken::new(),
+        };
+        let out = r.reflexion_split("article text").await.unwrap();
+        assert_eq!(out.sentences.len(), 5);
+        assert_eq!(out.title, "AI at work");
+        // No failed/ report written.
+        let failed_dir_entries: Vec<_> = std::fs::read_dir(&paths.failed_dir).unwrap().collect();
+        assert!(failed_dir_entries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn phase1_repair_success_on_second_attempt() {
+        let env = TestEnv::new();
+        let server = MockServer::start().await;
+        // First response: missing sentences.
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(envelope(r#"{"title":"T","description":""}"#)),
+            )
+            .up_to_n_times(1)
+            .expect(1)
+            .named("bad-first")
+            .mount(&server)
+            .await;
+        // Second response: valid.
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(envelope(ok_phase1())))
+            .expect(1)
+            .named("good-second")
+            .mount(&server)
+            .await;
+        let (paths, clock, client) = make(&env, &server);
+        let r = Reflexion {
+            client: &client,
+            clock: &clock,
+            paths: &paths,
+            model: "m",
+            max_concurrent: 5,
+            cancel: CancellationToken::new(),
+        };
+        let out = r.reflexion_split("article").await.unwrap();
+        assert_eq!(out.sentences.len(), 5);
+    }
+
+    #[tokio::test]
+    async fn phase1_three_failures_saves_to_disk_and_errors() {
+        let env = TestEnv::new();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(envelope("not json at all")))
+            .expect(3)
+            .mount(&server)
+            .await;
+        let (paths, clock, client) = make(&env, &server);
+        let r = Reflexion {
+            client: &client,
+            clock: &clock,
+            paths: &paths,
+            model: "m",
+            max_concurrent: 5,
+            cancel: CancellationToken::new(),
+        };
+        let err = r.reflexion_split("article").await.unwrap_err();
+        match err {
+            ReflexionError::AllAttemptsFailed {
+                phase,
+                saved_to,
+                last_attempts,
+                ..
+            } => {
+                assert_eq!(phase, 1);
+                assert!(saved_to.exists());
+                assert_eq!(last_attempts.len(), 3);
+            }
+            other => panic!("expected AllAttemptsFailed, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn phase1_auth_error_short_circuits_no_retry() {
+        let env = TestEnv::new();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(401).set_body_string("nope"))
+            .expect(1) // only ONE call; auth error does not retry
+            .mount(&server)
+            .await;
+        let (paths, clock, client) = make(&env, &server);
+        let r = Reflexion {
+            client: &client,
+            clock: &clock,
+            paths: &paths,
+            model: "m",
+            max_concurrent: 5,
+            cancel: CancellationToken::new(),
+        };
+        let err = r.reflexion_split("article").await.unwrap_err();
+        assert!(matches!(err, ReflexionError::Llm(_)), "{err:?}");
+        // No failed/ report for transport errors.
+        let failed: Vec<_> = std::fs::read_dir(&paths.failed_dir).unwrap().collect();
+        assert!(failed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn phase1_cancel_stops_retry_loop() {
+        let env = TestEnv::new();
+        let server = MockServer::start().await;
+        // Bad JSON response with a small delay so we have time to cancel between retries.
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(envelope("not json"))
+                    .set_delay(Duration::from_millis(50)),
+            )
+            .mount(&server)
+            .await;
+        let (paths, clock, client) = make(&env, &server);
+        let cancel = CancellationToken::new();
+        let c2 = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(80)).await;
+            c2.cancel();
+        });
+        let r = Reflexion {
+            client: &client,
+            clock: &clock,
+            paths: &paths,
+            model: "m",
+            max_concurrent: 5,
+            cancel,
+        };
+        let err = r.reflexion_split("article").await.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ReflexionError::Cancelled
+                    | ReflexionError::Llm(inkworm::llm::error::LlmError::Cancelled)
+            ),
+            "{err:?}"
+        );
+    }
+}
