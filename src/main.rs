@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use inkworm::app::App;
 use inkworm::clock::SystemClock;
@@ -7,6 +7,7 @@ use inkworm::config::Config;
 use inkworm::storage::course::load_course;
 use inkworm::storage::paths::DataPaths;
 use inkworm::storage::progress::Progress;
+use inkworm::ui::config_wizard::WizardOrigin;
 use inkworm::ui::event::run_loop;
 use inkworm::ui::terminal::{install_panic_hook, TerminalGuard};
 
@@ -22,23 +23,19 @@ fn main() -> anyhow::Result<()> {
     let paths = DataPaths::resolve(cli_config.as_deref())?;
     paths.ensure_dirs()?;
 
-    let config = match Config::load(&paths.config_file) {
-        Ok(c) => c,
+    let (config, needs_wizard) = match Config::load(&paths.config_file) {
+        Ok(c) if c.validate_llm().is_empty() => (c, false),
+        Ok(c) => {
+            for err in c.validate_llm() {
+                eprintln!("config: {err}");
+            }
+            (c, true)
+        }
         Err(e) => {
-            eprintln!("Failed to load config: {e}");
-            eprintln!("Create a config file at {:?} or run with --config <path>", paths.config_file);
-            std::process::exit(1);
+            eprintln!("config: could not load {:?}: {e}", paths.config_file);
+            (Config::default(), true)
         }
     };
-
-    let validation_errors = config.validate();
-    if !validation_errors.is_empty() {
-        eprintln!("Config validation errors:");
-        for e in &validation_errors {
-            eprintln!("  - {e}");
-        }
-        std::process::exit(1);
-    }
 
     let progress = Progress::load(&paths.progress_file)?;
 
@@ -62,6 +59,9 @@ fn main() -> anyhow::Result<()> {
             config,
             task_tx,
         );
+        if needs_wizard {
+            app.open_wizard(WizardOrigin::FirstRun);
+        }
         run_loop(&mut guard, &mut app, task_rx).await
     })?;
 

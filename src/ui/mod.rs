@@ -1,3 +1,4 @@
+pub mod config_wizard;
 pub mod error_banner;
 pub mod event;
 pub mod generate;

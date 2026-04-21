@@ -12,7 +12,7 @@ pub const COMMANDS: &[Command] = &[
     Command { name: "help", aliases: &[], description: "Show command list", available: true },
     Command { name: "import", aliases: &[], description: "Create a new course", available: true },
     Command { name: "list", aliases: &[], description: "Browse courses", available: false },
-    Command { name: "config", aliases: &[], description: "Configuration wizard", available: false },
+    Command { name: "config", aliases: &[], description: "Configuration wizard", available: true },
     Command { name: "tts", aliases: &[], description: "TTS settings", available: false },
     Command { name: "delete", aliases: &[], description: "Delete current course", available: true },
     Command { name: "logs", aliases: &[], description: "Show log file path", available: false },
