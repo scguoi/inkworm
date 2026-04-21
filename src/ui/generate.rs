@@ -121,7 +121,122 @@ mod tests {
     }
 }
 
-// Stub for Task 8
-pub fn render_generate(_frame: &mut ratatui::Frame, _state: &GenerateSubstate, _max_bytes: usize) {
-    // TODO: implement rendering
+use ratatui::{
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    text::Span,
+    widgets::{Block, Borders, Gauge, Paragraph, Wrap},
+    Frame,
+};
+
+pub fn render_generate(frame: &mut Frame, state: &GenerateSubstate, max_bytes: usize) {
+    let area = frame.area();
+
+    match state {
+        GenerateSubstate::Pasting(pasting) => {
+            render_pasting(frame, area, pasting, max_bytes);
+        }
+        GenerateSubstate::Running(running) => {
+            render_running(frame, area, running);
+        }
+        GenerateSubstate::Result(result) => {
+            render_result(frame, area, result);
+        }
+    }
+}
+
+fn render_pasting(frame: &mut Frame, area: Rect, state: &PastingState, max_bytes: usize) {
+    let text_height = (area.height * 70 / 100).max(5);
+    let text_area = Rect::new(0, 0, area.width, text_height);
+    let status_y = text_height;
+
+    let para = Paragraph::new(state.text.as_str())
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Paste Article (Ctrl+Enter to submit)"),
+        )
+        .wrap(Wrap { trim: false });
+    frame.render_widget(para, text_area);
+
+    let byte_count = state.byte_count();
+    let word_count = state.word_count();
+    let can_submit = state.can_submit(max_bytes);
+    let status_color = if can_submit {
+        Color::Green
+    } else {
+        Color::Red
+    };
+    let status_text = format!(
+        "{} bytes / {} words / {} limit {}",
+        byte_count,
+        word_count,
+        max_bytes,
+        if can_submit {
+            "✓"
+        } else {
+            "✗ exceeds limit"
+        }
+    );
+    let status = Paragraph::new(status_text).style(Style::default().fg(status_color));
+    frame.render_widget(status, Rect::new(0, status_y, area.width, 1));
+}
+
+fn render_running(frame: &mut Frame, area: Rect, state: &RunningState) {
+    let y = area.height / 2;
+
+    let label = Paragraph::new(state.phase_label.as_str())
+        .style(Style::default().fg(Color::Yellow))
+        .centered();
+    frame.render_widget(label, Rect::new(0, y.saturating_sub(2), area.width, 1));
+
+    if state.total > 0 {
+        let ratio = state.done as f64 / state.total as f64;
+        let gauge = Gauge::default()
+            .ratio(ratio)
+            .gauge_style(Style::default().fg(Color::Yellow))
+            .label(format!("{}/{}", state.done, state.total));
+        frame.render_widget(gauge, Rect::new(area.width / 4, y, area.width / 2, 1));
+    }
+
+    let hint = Paragraph::new("Esc · cancel")
+        .style(Style::default().fg(Color::DarkGray))
+        .alignment(ratatui::layout::Alignment::Right);
+    frame.render_widget(
+        hint,
+        Rect::new(0, area.height.saturating_sub(1), area.width, 1),
+    );
+}
+
+fn render_result(frame: &mut Frame, area: Rect, state: &ResultState) {
+    let y = area.height / 2;
+
+    if state.success {
+        let msg = Paragraph::new("Course created successfully!")
+            .style(Style::default().fg(Color::Green))
+            .centered();
+        frame.render_widget(msg, Rect::new(0, y, area.width, 1));
+    } else if let Some(ref error_msg) = state.error_msg {
+        let color = match error_msg.severity {
+            crate::ui::error_banner::Severity::Error => Color::Red,
+            crate::ui::error_banner::Severity::Warning => Color::Yellow,
+            crate::ui::error_banner::Severity::Info => Color::Blue,
+        };
+        let headline = Paragraph::new(error_msg.headline.as_str())
+            .style(Style::default().fg(color).add_modifier(Modifier::BOLD))
+            .centered();
+        frame.render_widget(headline, Rect::new(0, y.saturating_sub(1), area.width, 1));
+
+        if !error_msg.hint.is_empty() {
+            let hint = Paragraph::new(error_msg.hint.as_str())
+                .style(Style::default().fg(Color::DarkGray))
+                .centered();
+            frame.render_widget(hint, Rect::new(0, y, area.width, 1));
+        }
+
+        let actions = Paragraph::new("r retry / Esc back")
+            .style(Style::default().fg(Color::DarkGray))
+            .centered();
+        frame.render_widget(actions, Rect::new(0, y + 2, area.width, 1));
+    }
 }
