@@ -268,8 +268,8 @@ impl App {
             }
             KeyCode::Enter => {
                 if let Some(p) = &self.palette {
-                    if let Some(cmd) = p.confirm() {
-                        self.execute_command(cmd);
+                    if let Some((cmd, args)) = p.confirm() {
+                        self.execute_command(cmd, &args);
                     }
                 }
                 if !self.should_quit {
@@ -497,7 +497,7 @@ impl App {
         });
     }
 
-    fn execute_command(&mut self, cmd: &Command) {
+    fn execute_command(&mut self, cmd: &Command, args: &[String]) {
         match cmd.name {
             "quit" | "q" => self.quit(),
             "skip" => self.study.skip(),
@@ -509,14 +509,36 @@ impl App {
             "config" => {
                 self.open_wizard(crate::ui::config_wizard::WizardOrigin::Command);
             }
+            "list" => self.open_course_list(),
+            "tts" => self.execute_tts(args),
             "delete" => {
                 if let Some(course) = self.study.current_course() {
                     self.delete_confirming = Some(course.title.clone());
                     self.screen = Screen::DeleteConfirm;
                 }
             }
-            "list" => self.open_course_list(),
             _ => {}
+        }
+    }
+
+    fn execute_tts(&mut self, args: &[String]) {
+        use crate::config::TtsOverride;
+        let first = args.first().map(|s| s.as_str()).unwrap_or("");
+        match first {
+            "on" => self.set_tts_override(TtsOverride::On),
+            "off" => self.set_tts_override(TtsOverride::Off),
+            "auto" => self.set_tts_override(TtsOverride::Auto),
+            "clear-cache" => {
+                let _ = crate::tts::clear_cache(&self.data_paths.tts_cache_dir);
+            }
+            _ => {}
+        }
+    }
+
+    fn set_tts_override(&mut self, new_mode: crate::config::TtsOverride) {
+        self.config.tts.r#override = new_mode;
+        if let Err(e) = self.config.write_atomic(&self.data_paths.config_file) {
+            eprintln!("Failed to save TTS override: {e}");
         }
     }
 

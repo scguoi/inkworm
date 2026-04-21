@@ -4,19 +4,80 @@ pub struct Command {
     pub aliases: &'static [&'static str],
     pub description: &'static str,
     pub available: bool,
+    pub takes_args: bool,
 }
 
 pub const COMMANDS: &[Command] = &[
-    Command { name: "quit", aliases: &["q"], description: "Save progress and exit", available: true },
-    Command { name: "skip", aliases: &[], description: "Skip current drill", available: true },
-    Command { name: "help", aliases: &[], description: "Show command list", available: true },
-    Command { name: "import", aliases: &[], description: "Create a new course", available: true },
-    Command { name: "list", aliases: &[], description: "Browse courses", available: true },
-    Command { name: "config", aliases: &[], description: "Configuration wizard", available: true },
-    Command { name: "tts", aliases: &[], description: "TTS settings", available: false },
-    Command { name: "delete", aliases: &[], description: "Delete current course", available: true },
-    Command { name: "logs", aliases: &[], description: "Show log file path", available: false },
-    Command { name: "doctor", aliases: &[], description: "Health check", available: false },
+    Command {
+        name: "quit",
+        aliases: &["q"],
+        description: "Save progress and exit",
+        available: true,
+        takes_args: false,
+    },
+    Command {
+        name: "skip",
+        aliases: &[],
+        description: "Skip current drill",
+        available: true,
+        takes_args: false,
+    },
+    Command {
+        name: "help",
+        aliases: &[],
+        description: "Show command list",
+        available: true,
+        takes_args: false,
+    },
+    Command {
+        name: "import",
+        aliases: &[],
+        description: "Create a new course",
+        available: true,
+        takes_args: false,
+    },
+    Command {
+        name: "list",
+        aliases: &[],
+        description: "Browse courses",
+        available: true,
+        takes_args: false,
+    },
+    Command {
+        name: "config",
+        aliases: &[],
+        description: "Configuration wizard",
+        available: true,
+        takes_args: false,
+    },
+    Command {
+        name: "tts",
+        aliases: &[],
+        description: "TTS settings",
+        available: true,
+        takes_args: true,
+    },
+    Command {
+        name: "delete",
+        aliases: &[],
+        description: "Delete current course",
+        available: true,
+        takes_args: false,
+    },
+    Command {
+        name: "logs",
+        aliases: &[],
+        description: "Show log file path",
+        available: false,
+        takes_args: false,
+    },
+    Command {
+        name: "doctor",
+        aliases: &[],
+        description: "Health check",
+        available: false,
+        takes_args: false,
+    },
 ];
 
 pub struct PaletteState {
@@ -32,16 +93,25 @@ impl PaletteState {
         }
     }
 
+    /// Split input into (command_word, args). Strips the leading `/` and
+    /// extra whitespace between tokens.
+    pub fn parse(&self) -> (String, Vec<String>) {
+        let trimmed = self.input.trim_start_matches('/');
+        let mut parts = trimmed.split_whitespace();
+        let cmd = parts.next().unwrap_or("").to_lowercase();
+        let args = parts.map(|s| s.to_string()).collect();
+        (cmd, args)
+    }
+
     pub fn matches(&self) -> Vec<&'static Command> {
-        let query = self.input.trim_start_matches('/').to_lowercase();
+        let (query, _) = self.parse();
         if query.is_empty() {
             return COMMANDS.iter().collect();
         }
         COMMANDS
             .iter()
             .filter(|cmd| {
-                cmd.name.starts_with(&query)
-                    || cmd.aliases.iter().any(|a| a.starts_with(&query))
+                cmd.name.starts_with(&query) || cmd.aliases.iter().any(|a| a.starts_with(&query))
             })
             .collect()
     }
@@ -73,29 +143,34 @@ impl PaletteState {
     pub fn complete(&mut self) {
         let matches = self.matches();
         if let Some(cmd) = matches.get(self.selected) {
-            self.input = format!("/{}", cmd.name);
+            let suffix = if cmd.takes_args { " " } else { "" };
+            self.input = format!("/{}{}", cmd.name, suffix);
         }
     }
 
-    pub fn confirm(&self) -> Option<&'static Command> {
+    pub fn confirm(&self) -> Option<(&'static Command, Vec<String>)> {
         let matches = self.matches();
-        matches.get(self.selected).copied()
+        let cmd = matches.get(self.selected).copied()?;
+        let (_, args) = self.parse();
+        Some((cmd, args))
     }
 }
 
 use ratatui::{
-    Frame,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Clear, List, ListItem, Paragraph},
+    Frame,
 };
 
 pub fn render_palette(frame: &mut Frame, state: &PaletteState) {
     let area = frame.area();
     let matches = state.matches();
 
-    let list_height = (matches.len() as u16).min(10).min(area.height.saturating_sub(3));
+    let list_height = (matches.len() as u16)
+        .min(10)
+        .min(area.height.saturating_sub(3));
     let total_height = list_height + 1;
     let y = area.height.saturating_sub(total_height);
     let width = 40u16.min(area.width);
@@ -110,7 +185,9 @@ pub fn render_palette(frame: &mut Frame, state: &PaletteState) {
             .enumerate()
             .map(|(i, cmd)| {
                 let style = if i == state.selected {
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD)
                 } else if cmd.available {
                     Style::default().fg(Color::White)
                 } else {
@@ -119,7 +196,10 @@ pub fn render_palette(frame: &mut Frame, state: &PaletteState) {
                 let suffix = if !cmd.available { " (coming soon)" } else { "" };
                 ListItem::new(Line::from(vec![
                     Span::styled(format!("/{}", cmd.name), style),
-                    Span::styled(format!("  {}{}", cmd.description, suffix), Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("  {}{}", cmd.description, suffix),
+                        Style::default().fg(Color::DarkGray),
+                    ),
                 ]))
             })
             .collect();
@@ -137,7 +217,12 @@ pub fn render_palette(frame: &mut Frame, state: &PaletteState) {
 pub fn render_help(frame: &mut Frame) {
     let area = frame.area();
     let mut lines: Vec<Line> = vec![
-        Line::from(Span::styled("Commands", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled(
+            "Commands",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )),
         Line::from(""),
     ];
     for cmd in COMMANDS {
@@ -145,15 +230,31 @@ pub fn render_help(frame: &mut Frame) {
         let aliases = if cmd.aliases.is_empty() {
             String::new()
         } else {
-            format!(" ({})", cmd.aliases.iter().map(|a| format!("/{a}")).collect::<Vec<_>>().join(", "))
+            format!(
+                " ({})",
+                cmd.aliases
+                    .iter()
+                    .map(|a| format!("/{a}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
         };
         lines.push(Line::from(vec![
-            Span::styled(format!("  /{}{}", cmd.name, aliases), Style::default().fg(Color::White)),
-            Span::styled(format!("  {}{}", cmd.description, status), Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("  /{}{}", cmd.name, aliases),
+                Style::default().fg(Color::White),
+            ),
+            Span::styled(
+                format!("  {}{}", cmd.description, status),
+                Style::default().fg(Color::DarkGray),
+            ),
         ]));
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("Press any key to close", Style::default().fg(Color::DarkGray))));
+    lines.push(Line::from(Span::styled(
+        "Press any key to close",
+        Style::default().fg(Color::DarkGray),
+    )));
 
     let height = lines.len() as u16;
     let y = area.height.saturating_sub(height) / 2;
@@ -213,7 +314,7 @@ mod tests {
         for c in "quit".chars() {
             p.type_char(c);
         }
-        let cmd = p.confirm().unwrap();
+        let (cmd, _args) = p.confirm().unwrap();
         assert_eq!(cmd.name, "quit");
     }
 
@@ -225,5 +326,68 @@ mod tests {
         }
         assert!(p.matches().is_empty());
         assert!(p.confirm().is_none());
+    }
+
+    #[test]
+    fn parse_single_token_has_no_args() {
+        let mut p = PaletteState::new();
+        for c in "/tts".chars() {
+            p.type_char(c);
+        }
+        let (cmd, args) = p.parse();
+        assert_eq!(cmd, "tts");
+        assert!(args.is_empty());
+    }
+
+    #[test]
+    fn parse_splits_on_whitespace() {
+        let mut p = PaletteState::new();
+        for c in "/tts on".chars() {
+            p.type_char(c);
+        }
+        let (cmd, args) = p.parse();
+        assert_eq!(cmd, "tts");
+        assert_eq!(args, vec!["on"]);
+    }
+
+    #[test]
+    fn parse_handles_multiple_args_and_extra_spaces() {
+        let mut p = PaletteState::new();
+        for c in "/tts   clear-cache".chars() {
+            p.type_char(c);
+        }
+        let (cmd, args) = p.parse();
+        assert_eq!(cmd, "tts");
+        assert_eq!(args, vec!["clear-cache"]);
+    }
+
+    #[test]
+    fn matches_filters_on_first_word_only() {
+        let mut p = PaletteState::new();
+        for c in "/tts on".chars() {
+            p.type_char(c);
+        }
+        let m = p.matches();
+        assert!(
+            m.iter().any(|c| c.name == "tts"),
+            "expected tts match, got {:?}",
+            m.iter().map(|c| c.name).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn tab_completes_with_trailing_space_for_arg_commands() {
+        let mut p = PaletteState::new();
+        p.type_char('t');
+        p.complete();
+        assert_eq!(p.input, "/tts ");
+    }
+
+    #[test]
+    fn tab_completes_without_trailing_space_for_arg_less_commands() {
+        let mut p = PaletteState::new();
+        p.type_char('h');
+        p.complete();
+        assert_eq!(p.input, "/help");
     }
 }
