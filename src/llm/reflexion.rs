@@ -119,6 +119,117 @@ fn try_parse_and_validate_phase1(raw: &str) -> Result<RawSentences, Vec<String>>
     }
 }
 
+use std::sync::Arc;
+
+use futures::future::try_join_all;
+use serde_json::json;
+use tokio::sync::Semaphore;
+
+use crate::llm::prompt::PHASE2_SYSTEM;
+use crate::llm::types::{RawDrill, RawDrills, RawSentence};
+
+impl<'a> Reflexion<'a> {
+    /// Phase 2: expand ONE sentence into drills via LLM. Up to 3 repair attempts.
+    /// Returns `Ok(RawDrills)` or a `ReflexionError::AllAttemptsFailed { phase: 2 }`.
+    pub async fn reflexion_drill(
+        &self,
+        sentence_index: usize,
+        sentence: &RawSentence,
+    ) -> Result<RawDrills, ReflexionError> {
+        let user_prompt = json!({
+            "chinese": sentence.chinese,
+            "english": sentence.english,
+        })
+        .to_string();
+        let mut req = ChatRequest::system_and_user(
+            self.model.to_string(),
+            PHASE2_SYSTEM.to_string(),
+            user_prompt.clone(),
+        );
+        let mut failures: Vec<AttemptFailure> = Vec::new();
+
+        for attempt in 1..=3u32 {
+            if self.cancel.is_cancelled() {
+                return Err(ReflexionError::Cancelled);
+            }
+            let raw = self.client.chat(req.clone(), self.cancel.clone()).await?;
+            match try_parse_and_validate_phase2(&raw, &sentence.english) {
+                Ok(rd) => return Ok(rd),
+                Err(errors) => {
+                    failures.push(AttemptFailure {
+                        attempt_number: attempt,
+                        raw: raw.clone(),
+                        errors: errors.clone(),
+                    });
+                    if attempt == 3 {
+                        let path = save_failed_response(
+                            &self.paths.failed_dir,
+                            self.clock.now(),
+                            2,
+                            Some(sentence_index),
+                            self.model,
+                            &sentence.english,
+                            &failures,
+                        )?;
+                        return Err(ReflexionError::AllAttemptsFailed {
+                            phase: 2,
+                            sentence_index: Some(sentence_index),
+                            saved_to: path,
+                            last_attempts: failures,
+                        });
+                    }
+                    req.append_repair(raw, repair_message(&errors));
+                }
+            }
+        }
+        unreachable!("loop returns on attempt == 3")
+    }
+
+    /// Run `reflexion_drill` for each sentence, bounded by `max_concurrent`.
+    /// Any single-sentence failure returns an error and cancels the rest.
+    pub async fn orchestrate_phase2(
+        &self,
+        sentences: &[RawSentence],
+    ) -> Result<Vec<RawDrills>, ReflexionError> {
+        let sem = Arc::new(Semaphore::new(self.max_concurrent.max(1)));
+        let tasks: Vec<_> = sentences
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let sem = sem.clone();
+                let sentence = s.clone();
+                async move {
+                    let _permit = sem.acquire().await.unwrap();
+                    self.reflexion_drill(i, &sentence).await
+                }
+            })
+            .collect();
+        try_join_all(tasks).await
+    }
+}
+
+/// Try to parse the raw string as `RawDrills` and validate it against the
+/// reference english. Returns the flat error list on failure.
+fn try_parse_and_validate_phase2(
+    raw: &str,
+    reference_english: &str,
+) -> Result<RawDrills, Vec<String>> {
+    let parsed: RawDrills = match serde_json::from_str(strip_code_fences(raw)) {
+        Ok(p) => p,
+        Err(e) => return Err(vec![format!("JSON parse failed: {e}")]),
+    };
+    let errs = parsed.validate(reference_english);
+    if errs.is_empty() {
+        Ok(parsed)
+    } else {
+        Err(errs)
+    }
+}
+
+// Temporarily silence `unused import` for RawDrill until Task 8.1 uses it.
+#[allow(dead_code)]
+fn __keep_raw_drill_in_scope(_: RawDrill) {}
+
 /// Tolerate LLMs that wrap JSON in ```json ... ``` despite being told not to.
 fn strip_code_fences(s: &str) -> &str {
     let t = s.trim();
