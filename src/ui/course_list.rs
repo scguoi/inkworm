@@ -3,7 +3,7 @@
 use crate::storage::course::CourseMeta;
 use crate::storage::progress::Progress;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CourseListItem {
     pub meta: CourseMeta,
     pub completed_drills: usize,
@@ -75,8 +75,7 @@ impl CourseListState {
         if self.items.is_empty() {
             return;
         }
-        let new = (self.selected + page.max(1)).min(self.items.len() - 1);
-        self.selected = new;
+        self.selected = (self.selected + page.max(1)).min(self.items.len() - 1);
     }
 
     pub fn page_up(&mut self, page: usize) {
