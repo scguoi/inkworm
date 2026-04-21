@@ -60,3 +60,9 @@ impl DataPaths {
         Ok(())
     }
 }
+
+impl DataPaths {
+    pub fn for_tests(root: std::path::PathBuf) -> Self {
+        Self::from_root(root)
+    }
+}
