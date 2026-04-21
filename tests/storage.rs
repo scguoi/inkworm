@@ -93,3 +93,25 @@ mod atomic_write {
         assert!(p.is_file());
     }
 }
+
+mod course_schema {
+    use inkworm::storage::course::Course;
+
+    fn load(name: &str) -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures/courses")
+            .join(name);
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {path:?}: {e}"))
+    }
+
+    #[test]
+    fn good_minimal_round_trips() {
+        let json = load("good/minimal.json");
+        let course: Course = serde_json::from_str(&json).expect("deserialize");
+        let errs = course.validate();
+        assert!(errs.is_empty(), "unexpected errors: {errs:#?}");
+        let reserialized = serde_json::to_string_pretty(&course).expect("serialize");
+        let course2: Course = serde_json::from_str(&reserialized).expect("re-deserialize");
+        assert_eq!(course, course2);
+    }
+}
