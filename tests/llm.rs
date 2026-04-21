@@ -528,3 +528,107 @@ mod reflexion_phase2 {
         );
     }
 }
+
+mod reflexion_e2e {
+    use super::common::llm_mocks::envelope;
+    use super::common::TestEnv;
+    use chrono::{TimeZone, Utc};
+    use inkworm::clock::FixedClock;
+    use inkworm::llm::client::ReqwestClient;
+    use inkworm::llm::reflexion::Reflexion;
+    use inkworm::storage::paths::DataPaths;
+    use std::time::Duration;
+    use tokio_util::sync::CancellationToken;
+    use wiremock::matchers::{body_string_contains, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn phase1_ok() -> &'static str {
+        r#"{
+          "title": "Test lesson",
+          "description": "",
+          "sentences": [
+            {"chinese": "一", "english": "sentence number 0 here"},
+            {"chinese": "二", "english": "sentence number 1 here"},
+            {"chinese": "三", "english": "sentence number 2 here"},
+            {"chinese": "四", "english": "sentence number 3 here"},
+            {"chinese": "五", "english": "sentence number 4 here"}
+          ]
+        }"#
+    }
+
+    fn drill_for(english: &str) -> String {
+        format!(
+            r#"{{
+              "drills": [
+                {{"stage": 1, "focus": "keywords", "chinese": "关键", "english": "a b", "soundmark": ""}},
+                {{"stage": 2, "focus": "skeleton", "chinese": "骨架", "english": "a b c", "soundmark": ""}},
+                {{"stage": 3, "focus": "full", "chinese": "完整", "english": "{english}", "soundmark": ""}}
+              ]
+            }}"#
+        )
+    }
+
+    #[tokio::test]
+    async fn article_to_course_happy_path() {
+        let env = TestEnv::new();
+        let server = MockServer::start().await;
+
+        // Phase 1 — matches the article text in the user prompt.
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .and(body_string_contains("Article to split"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(envelope(phase1_ok())))
+            .up_to_n_times(1)
+            .expect(1)
+            .named("phase1")
+            .mount(&server)
+            .await;
+
+        // Phase 2 — one mock per sentence, keyed by matching the english in the
+        // user prompt (each request body embeds the sentence JSON).
+        for i in 0..5 {
+            let english = format!("sentence number {i} here");
+            Mock::given(method("POST"))
+                .and(path("/chat/completions"))
+                .and(body_string_contains(&english as &str))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(envelope(&drill_for(&english))),
+                )
+                .up_to_n_times(1)
+                .expect(1)
+                .named(format!("phase2-{i}"))
+                .mount(&server)
+                .await;
+        }
+
+        let paths = DataPaths::resolve(Some(&env.home)).unwrap();
+        paths.ensure_dirs().unwrap();
+        let clock = FixedClock(Utc.with_ymd_and_hms(2026, 4, 21, 10, 0, 0).unwrap());
+        let client = ReqwestClient::new(server.uri(), "sk-test", Duration::from_secs(5)).unwrap();
+        let r = Reflexion {
+            client: &client,
+            clock: &clock,
+            paths: &paths,
+            model: "gpt-4o-mini",
+            max_concurrent: 3,
+            cancel: CancellationToken::new(),
+        };
+
+        let out = r
+            .generate("This is a sample article body with enough context.", &[])
+            .await
+            .unwrap();
+
+        // Course-level invariants.
+        assert_eq!(out.course.schema_version, 2);
+        assert!(out.course.id.starts_with("2026-04-21-test-lesson"));
+        assert_eq!(out.course.title, "Test lesson");
+        assert_eq!(out.course.sentences.len(), 5);
+        assert!(out.course.sentences.iter().all(|s| s.drills.len() == 3));
+        assert!(
+            out.course.validate().is_empty(),
+            "{:#?}",
+            out.course.validate()
+        );
+    }
+}
