@@ -410,7 +410,7 @@ mod reflexion_phase2 {
             max_concurrent: 3,
             cancel: CancellationToken::new(),
         };
-        let outs = r.orchestrate_phase2(&sentences).await.unwrap();
+        let outs = r.orchestrate_phase2(&sentences, None).await.unwrap();
         assert_eq!(outs.len(), 5);
         for o in &outs {
             assert_eq!(o.drills.len(), 3);
@@ -454,7 +454,7 @@ mod reflexion_phase2 {
             max_concurrent: 5,
             cancel: CancellationToken::new(),
         };
-        let err = r.orchestrate_phase2(&sentences).await.unwrap_err();
+        let err = r.orchestrate_phase2(&sentences, None).await.unwrap_err();
         match err {
             ReflexionError::AllAttemptsFailed {
                 phase,
@@ -514,7 +514,7 @@ mod reflexion_phase2 {
             max_concurrent: 5,
             cancel: CancellationToken::new(),
         };
-        let err = r.orchestrate_phase2(&sentences).await.unwrap_err();
+        let err = r.orchestrate_phase2(&sentences, None).await.unwrap_err();
         assert!(
             matches!(
                 err,
@@ -615,7 +615,7 @@ mod reflexion_e2e {
         };
 
         let out = r
-            .generate("This is a sample article body with enough context.", &[])
+            .generate("This is a sample article body with enough context.", &[], None)
             .await
             .unwrap();
 
