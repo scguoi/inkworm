@@ -456,6 +456,9 @@ impl App {
                 self.generate = Some(GenerateSubstate::Pasting(PastingState::new()));
                 self.screen = Screen::Generate;
             }
+            "config" => {
+                self.open_wizard(crate::ui::config_wizard::WizardOrigin::Command);
+            }
             "delete" => {
                 if let Some(course) = self.study.current_course() {
                     self.delete_confirming = Some(course.title.clone());
