@@ -109,16 +109,24 @@ impl StudyState {
     }
 
     pub fn type_char(&mut self, c: char) {
-        if self.phase != StudyPhase::Active || self.feedback != FeedbackState::Typing {
+        if self.phase != StudyPhase::Active {
             return;
         }
+        if self.feedback == FeedbackState::Correct {
+            return;
+        }
+        self.feedback = FeedbackState::Typing;
         self.input.push(c);
     }
 
     pub fn backspace(&mut self) {
-        if self.phase != StudyPhase::Active || self.feedback != FeedbackState::Typing {
+        if self.phase != StudyPhase::Active {
             return;
         }
+        if self.feedback == FeedbackState::Correct {
+            return;
+        }
+        self.feedback = FeedbackState::Typing;
         self.input.pop();
     }
 

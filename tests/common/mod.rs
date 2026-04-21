@@ -21,3 +21,10 @@ impl TestEnv {
         Self { _tmp: tmp, home }
     }
 }
+
+use inkworm::storage::course::Course;
+
+pub fn load_minimal_course() -> Course {
+    let json = include_str!("../../fixtures/courses/good/minimal.json");
+    serde_json::from_str(json).unwrap()
+}
