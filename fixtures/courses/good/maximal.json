@@ -1,0 +1,214 @@
+{
+  "schemaVersion": 2,
+  "id": "2026-04-21-maximal-sample",
+  "title": "Maximal sample (20x5)",
+  "description": "upper-bound fixture for schema validation",
+  "source": {
+    "type": "article",
+    "url": "",
+    "createdAt": "2026-04-21T00:00:00Z",
+    "model": "gpt-4o-mini"
+  },
+  "sentences": [
+    {
+      "order": 1,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 2,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 3,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 4,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 5,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 6,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 7,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 8,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 9,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 10,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 11,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 12,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 13,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 14,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 15,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 16,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 17,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 18,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 19,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    },
+    {
+      "order": 20,
+      "drills": [
+        { "stage": 1, "focus": "keywords", "chinese": "一", "english": "one two", "soundmark": "" },
+        { "stage": 2, "focus": "skeleton", "chinese": "一二", "english": "one two three", "soundmark": "" },
+        { "stage": 3, "focus": "clause", "chinese": "一二三", "english": "one two three four", "soundmark": "" },
+        { "stage": 4, "focus": "clause", "chinese": "一二三四", "english": "one two three four five", "soundmark": "" },
+        { "stage": 5, "focus": "full", "chinese": "一二三四五", "english": "one two three four five six", "soundmark": "" }
+      ]
+    }
+  ]
+}

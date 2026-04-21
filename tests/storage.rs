@@ -114,4 +114,26 @@ mod course_schema {
         let course2: Course = serde_json::from_str(&reserialized).expect("re-deserialize");
         assert_eq!(course, course2);
     }
+
+    #[test]
+    fn good_maximal_validates() {
+        let json = load("good/maximal.json");
+        let course: Course = serde_json::from_str(&json).expect("deserialize");
+        let errs = course.validate();
+        assert!(errs.is_empty(), "unexpected errors: {errs:#?}");
+        assert_eq!(course.sentences.len(), 20);
+        assert!(course.sentences.iter().all(|s| s.drills.len() == 5));
+    }
+
+    #[test]
+    fn good_soundmark_empty_validates() {
+        let json = load("good/soundmark_empty.json");
+        let course: Course = serde_json::from_str(&json).expect("deserialize");
+        let errs = course.validate();
+        assert!(errs.is_empty(), "unexpected errors: {errs:#?}");
+        assert!(course
+            .sentences
+            .iter()
+            .all(|s| s.drills.iter().all(|d| d.soundmark.is_empty())));
+    }
 }
