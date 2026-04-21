@@ -83,6 +83,84 @@ impl PaletteState {
     }
 }
 
+use ratatui::{
+    Frame,
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Clear, List, ListItem, Paragraph},
+};
+
+pub fn render_palette(frame: &mut Frame, state: &PaletteState) {
+    let area = frame.area();
+    let matches = state.matches();
+
+    let list_height = (matches.len() as u16).min(10).min(area.height.saturating_sub(3));
+    let total_height = list_height + 1;
+    let y = area.height.saturating_sub(total_height);
+    let width = 40u16.min(area.width);
+    let x = (area.width.saturating_sub(width)) / 2;
+
+    let palette_rect = Rect::new(x, y, width, total_height);
+    frame.render_widget(Clear, palette_rect);
+
+    if !matches.is_empty() {
+        let items: Vec<ListItem> = matches
+            .iter()
+            .enumerate()
+            .map(|(i, cmd)| {
+                let style = if i == state.selected {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else if cmd.available {
+                    Style::default().fg(Color::White)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                let suffix = if !cmd.available { " (coming soon)" } else { "" };
+                ListItem::new(Line::from(vec![
+                    Span::styled(format!("/{}", cmd.name), style),
+                    Span::styled(format!("  {}{}", cmd.description, suffix), Style::default().fg(Color::DarkGray)),
+                ]))
+            })
+            .collect();
+        let list = List::new(items);
+        frame.render_widget(list, Rect::new(x, y, width, list_height));
+    }
+
+    let input_line = Paragraph::new(Line::from(vec![
+        Span::styled("> ", Style::default().fg(Color::DarkGray)),
+        Span::styled(state.input.clone(), Style::default().fg(Color::White)),
+    ]));
+    frame.render_widget(input_line, Rect::new(x, y + list_height, width, 1));
+}
+
+pub fn render_help(frame: &mut Frame) {
+    let area = frame.area();
+    let mut lines: Vec<Line> = vec![
+        Line::from(Span::styled("Commands", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+        Line::from(""),
+    ];
+    for cmd in COMMANDS {
+        let status = if cmd.available { "" } else { " (coming soon)" };
+        let aliases = if cmd.aliases.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", cmd.aliases.iter().map(|a| format!("/{a}")).collect::<Vec<_>>().join(", "))
+        };
+        lines.push(Line::from(vec![
+            Span::styled(format!("  /{}{}", cmd.name, aliases), Style::default().fg(Color::White)),
+            Span::styled(format!("  {}{}", cmd.description, status), Style::default().fg(Color::DarkGray)),
+        ]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("Press any key to close", Style::default().fg(Color::DarkGray))));
+
+    let height = lines.len() as u16;
+    let y = area.height.saturating_sub(height) / 2;
+    let para = Paragraph::new(lines).centered();
+    frame.render_widget(para, Rect::new(0, y, area.width, height));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

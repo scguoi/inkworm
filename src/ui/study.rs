@@ -4,6 +4,14 @@ use crate::storage::course::{Course, Drill};
 use crate::storage::progress::{
     DrillProgress, Progress, SentenceProgress,
 };
+use crate::ui::skeleton::skeleton;
+use ratatui::{
+    Frame,
+    layout::Rect,
+    style::{Color, Style},
+    text::{Line, Span},
+    widgets::Paragraph,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FeedbackState {
@@ -198,6 +206,144 @@ fn find_first_diff(input: &str, reference: &str) -> usize {
         }
     }
     ref_chars.len()
+}
+
+pub fn render_study(frame: &mut Frame, state: &StudyState, cursor_visible: bool) {
+    let area = frame.area();
+
+    match state.phase() {
+        StudyPhase::Empty => {
+            let msg = Paragraph::new("No active course. Press Ctrl+P → /import to create one.")
+                .style(Style::default().fg(Color::DarkGray))
+                .centered();
+            let y = area.height / 2;
+            let rect = Rect::new(0, y, area.width, 1);
+            frame.render_widget(msg, rect);
+            return;
+        }
+        StudyPhase::Complete => {
+            let msg = Paragraph::new("Course complete!")
+                .style(Style::default().fg(Color::Green))
+                .centered();
+            let y = area.height / 2;
+            let rect = Rect::new(0, y, area.width, 1);
+            frame.render_widget(msg, rect);
+            return;
+        }
+        StudyPhase::Active => {}
+    }
+
+    let drill = match state.current_drill() {
+        Some(d) => d,
+        None => return,
+    };
+
+    // Three lines, vertically centered
+    let block_height = 3u16;
+    let y_start = area.height.saturating_sub(block_height) / 2;
+    let padding = 5u16.min(area.width / 10);
+
+    let content_width = area.width.saturating_sub(padding * 2);
+
+    // Line 1: Chinese
+    let chinese = Paragraph::new(drill.chinese.as_str())
+        .style(Style::default().fg(Color::White));
+    frame.render_widget(chinese, Rect::new(padding, y_start, content_width, 1));
+
+    // Line 2: Soundmark
+    let soundmark_text = if drill.soundmark.is_empty() {
+        " ".to_string()
+    } else {
+        let max_chars = content_width as usize;
+        let chars: Vec<char> = drill.soundmark.chars().collect();
+        if chars.len() > max_chars && max_chars > 1 {
+            let mut s: String = chars[..max_chars - 1].iter().collect();
+            s.push('…');
+            s
+        } else {
+            drill.soundmark.clone()
+        }
+    };
+    let soundmark = Paragraph::new(soundmark_text)
+        .style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(soundmark, Rect::new(padding, y_start + 1, content_width, 1));
+
+    // Line 3: Input with skeleton
+    let skel = skeleton(&drill.english);
+    let input = state.input();
+    let input_line = build_input_line(input, &skel, state.feedback(), &drill.english, cursor_visible);
+    let input_para = Paragraph::new(input_line);
+    frame.render_widget(input_para, Rect::new(padding, y_start + 2, content_width, 1));
+}
+
+fn build_input_line<'a>(
+    input: &str,
+    skel: &str,
+    feedback: &FeedbackState,
+    reference: &str,
+    cursor_visible: bool,
+) -> Line<'a> {
+    let mut spans = vec![Span::styled("> ", Style::default().fg(Color::DarkGray))];
+
+    let skel_chars: Vec<char> = skel.chars().collect();
+    let input_chars: Vec<char> = input.chars().collect();
+
+    match feedback {
+        FeedbackState::Correct => {
+            spans.push(Span::styled(
+                format!("{input} ✓"),
+                Style::default().fg(Color::Green),
+            ));
+        }
+        FeedbackState::Wrong { diff_index } => {
+            let ref_chars: Vec<char> = reference.chars().collect();
+            // Typed portion up to diff
+            let before: String = input_chars[..*diff_index.min(&input_chars.len())].iter().collect();
+            spans.push(Span::styled(before, Style::default().fg(Color::White)));
+            // Diff char
+            if *diff_index < input_chars.len() {
+                spans.push(Span::styled(
+                    input_chars[*diff_index].to_string(),
+                    Style::default().fg(Color::Red),
+                ));
+                let after: String = input_chars[diff_index + 1..].iter().collect();
+                if !after.is_empty() {
+                    spans.push(Span::styled(after, Style::default().fg(Color::White)));
+                }
+            }
+            // Append reference in dim
+            spans.push(Span::styled(
+                format!("  {reference}"),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+        FeedbackState::Typing => {
+            // Typed chars in white
+            let typed: String = input_chars.iter().collect();
+            spans.push(Span::styled(typed, Style::default().fg(Color::White)));
+            // Cursor
+            if cursor_visible {
+                let cursor_char = skel_chars.get(input_chars.len()).copied().unwrap_or(' ');
+                spans.push(Span::styled(
+                    cursor_char.to_string(),
+                    Style::default().fg(Color::Black).bg(Color::White),
+                ));
+                // Remaining skeleton
+                if input_chars.len() + 1 < skel_chars.len() {
+                    let rest: String = skel_chars[input_chars.len() + 1..].iter().collect();
+                    spans.push(Span::styled(rest, Style::default().fg(Color::DarkGray)));
+                }
+            } else {
+                // No cursor, show remaining skeleton
+                if input_chars.len() < skel_chars.len() {
+                    let rest: String = skel_chars[input_chars.len()..].iter().collect();
+                    spans.push(Span::styled(rest, Style::default().fg(Color::DarkGray)));
+                }
+            }
+        }
+    }
+
+    Line::from(spans)
 }
 
 #[cfg(test)]
