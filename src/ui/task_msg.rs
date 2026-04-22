@@ -1,11 +1,13 @@
 use crate::error::AppError;
 use crate::storage::course::Course;
+use crate::tts::OutputKind;
 
 /// Messages sent from background tasks to the main event loop.
 #[derive(Debug)]
 pub enum TaskMsg {
     Generate(GenerateProgress),
     Wizard(WizardTaskMsg),
+    DeviceDetected(OutputKind),
 }
 
 /// Progress updates from the Generate background task.

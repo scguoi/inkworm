@@ -40,6 +40,10 @@ pub mod wav;
 pub use iflytek::IflytekSpeaker;
 pub use speaker::{build_speaker, NullSpeaker, Speaker, TtsError};
 
+pub mod device;
+
+pub use device::{should_speak, OutputKind};
+
 #[cfg(test)]
 mod tests {
     use super::*;
