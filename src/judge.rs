@@ -1,13 +1,13 @@
 //! Lenient equality judgment for typing answers.
 //!
 //! Normalization:
+//!   - case-insensitive
 //!   - trim
 //!   - collapse consecutive whitespace to a single space
 //!   - replace curly quotes with straight (\' \")
 //!   - strip all trailing . ! ? (and any trailing spaces before/between them)
 //!
 //! Not normalized:
-//!   - case
 //!   - inner punctuation
 //!   - contractions (I've ≠ I have)
 
@@ -20,9 +20,10 @@ pub fn normalize(s: &str) -> String {
             _ => c,
         })
         .collect();
-    let mut collapsed = String::with_capacity(replaced.len());
+    let lowered = replaced.to_lowercase();
+    let mut collapsed = String::with_capacity(lowered.len());
     let mut last_was_space = true; // leading trim
-    for c in replaced.chars() {
+    for c in lowered.chars() {
         if c.is_whitespace() {
             if !last_was_space {
                 collapsed.push(' ');
@@ -61,9 +62,9 @@ mod tests {
     const CASES: &[(&str, &str, bool)] = &[
         // identity
         ("hello", "hello", true),
-        // case matters
-        ("Hello", "hello", false),
-        ("AI", "ai", false),
+        // case insensitive
+        ("Hello", "hello", true),
+        ("AI", "ai", true),
         // trailing punctuation is stripped
         ("hello.", "hello", true),
         ("hello!", "hello", true),
@@ -103,7 +104,7 @@ mod tests {
         ("The quick fox", "The quick fox", true),
         ("The quick  fox ", "The quick fox", true),
         ("The quick fox.", "The quick fox", true),
-        ("the quick fox", "The quick fox", false),
+        ("the quick fox", "The quick fox", true),
         ("\"quoted\"", "\u{201C}quoted\u{201D}", true),
         ("isn't", "isnt", false),
         ("can't", "cannot", false),
