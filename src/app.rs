@@ -27,6 +27,7 @@ pub enum Screen {
     DeleteConfirm,
     ConfigWizard,
     CourseList,
+    TtsStatus,
 }
 
 pub struct App {
@@ -47,6 +48,7 @@ pub struct App {
     pub speaker: Arc<dyn Speaker>,
     pub current_device: OutputKind,
     device_probe_counter: u32,
+    pub last_tts_error: Arc<tokio::sync::Mutex<Option<String>>>,
 }
 
 impl App {
@@ -77,6 +79,7 @@ impl App {
             speaker,
             current_device: OutputKind::Unknown,
             device_probe_counter: 0,
+            last_tts_error: Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 
@@ -111,8 +114,11 @@ impl App {
         }
         let text = drill.english.clone();
         let speaker = Arc::clone(&self.speaker);
+        let last_error = Arc::clone(&self.last_tts_error);
         tokio::spawn(async move {
-            let _ = speaker.speak(&text).await;
+            if let Err(e) = speaker.speak(&text).await {
+                *last_error.lock().await = Some(format!("{}", e));
+            }
         });
     }
 
@@ -177,6 +183,11 @@ impl App {
                 Screen::DeleteConfirm => self.handle_delete_confirm_key(key),
                 Screen::ConfigWizard => self.handle_config_wizard_key(key),
                 Screen::CourseList => self.handle_course_list_key(key),
+                Screen::TtsStatus => {
+                    if key.code == KeyCode::Esc {
+                        self.screen = Screen::Study;
+                    }
+                }
             },
             Event::Paste(text) => {
                 if let Screen::Generate = self.screen {
@@ -591,6 +602,9 @@ impl App {
             "clear-cache" => {
                 let _ = crate::tts::clear_cache(&self.data_paths.tts_cache_dir);
             }
+            "" => {
+                self.screen = Screen::TtsStatus;
+            }
             _ => {}
         }
     }
@@ -648,6 +662,18 @@ impl App {
                 if let Some(ref state) = self.course_list {
                     crate::ui::course_list::render_course_list(frame, state);
                 }
+            }
+            Screen::TtsStatus => {
+                crate::ui::study::render_study(frame, &self.study, self.cursor_visible);
+                let cache_stats = crate::tts::cache::cache_stats(&self.data_paths.tts_cache_dir);
+                let last_error = self.last_tts_error.blocking_lock().clone();
+                crate::ui::tts_status::render_tts_status(
+                    frame,
+                    &self.config.tts,
+                    self.current_device,
+                    last_error,
+                    cache_stats,
+                );
             }
         }
     }
