@@ -47,19 +47,22 @@ impl Speaker for NullSpeaker {
 }
 
 /// Build the speaker appropriate for the given config and override.
-///
-/// Plan 6b: always returns `NullSpeaker`. Plan 6c will swap in
-/// `IflytekSpeaker` when credentials are present and override ≠ Off.
+/// Plan 6c: returns `IflytekSpeaker` when creds are present and mode ≠ Off;
+/// otherwise `NullSpeaker`. Plan 6d will add the device-auto-detect path.
 pub fn build_speaker(
     cfg: &IflytekConfig,
-    _cache_dir: PathBuf,
+    cache_dir: PathBuf,
     mode: TtsOverride,
+    audio: Option<rodio::OutputStreamHandle>,
 ) -> Box<dyn Speaker> {
     if mode == TtsOverride::Off || !has_creds(cfg) {
         return Box::new(NullSpeaker);
     }
-    // Plan 6c: replace with `Box::new(IflytekSpeaker::new(cfg.clone(), cache_dir))`.
-    Box::new(NullSpeaker)
+    Box::new(crate::tts::iflytek::IflytekSpeaker::new(
+        cfg.clone(),
+        cache_dir,
+        audio,
+    ))
 }
 
 fn has_creds(cfg: &IflytekConfig) -> bool {
@@ -118,19 +121,41 @@ mod tests {
 
     #[tokio::test]
     async fn build_speaker_returns_null_when_mode_off() {
-        let b = build_speaker(&full_iflytek(), PathBuf::from("/tmp/x"), TtsOverride::Off);
+        let b = build_speaker(
+            &full_iflytek(),
+            PathBuf::from("/tmp/x"),
+            TtsOverride::Off,
+            None,
+        );
         assert!(b.speak("x").await.is_ok());
     }
 
     #[tokio::test]
     async fn build_speaker_returns_null_when_creds_missing() {
-        let b = build_speaker(&empty_iflytek(), PathBuf::from("/tmp/x"), TtsOverride::Auto);
+        let b = build_speaker(
+            &empty_iflytek(),
+            PathBuf::from("/tmp/x"),
+            TtsOverride::Auto,
+            None,
+        );
         assert!(b.speak("x").await.is_ok());
     }
 
     #[tokio::test]
-    async fn build_speaker_returns_null_when_creds_present_but_plan6b() {
-        let b = build_speaker(&full_iflytek(), PathBuf::from("/tmp/x"), TtsOverride::On);
-        assert!(b.speak("x").await.is_ok());
+    async fn build_speaker_returns_iflytek_when_creds_present() {
+        let tmp = tempfile::tempdir().unwrap();
+        let b = build_speaker(
+            &full_iflytek(),
+            tmp.path().to_path_buf(),
+            TtsOverride::On,
+            None, // cache-only mode
+        );
+        // Pre-populate the cache for "hello" so speak() hits the cache path
+        // and does not attempt a WS connection to the real iflytek endpoint.
+        let key = crate::tts::cache::cache_key("hello", "x3_catherine");
+        let path = crate::tts::cache::cache_path(tmp.path(), &key);
+        crate::tts::wav::write_wav_atomic(&path, &[0, 0]).unwrap();
+        let res = b.speak("hello").await;
+        assert!(res.is_ok(), "{res:?}");
     }
 }
