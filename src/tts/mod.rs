@@ -32,7 +32,10 @@ pub fn clear_cache(dir: &Path) -> io::Result<usize> {
 
 pub mod auth;
 pub mod cache;
+pub mod speaker;
 pub mod wav;
+
+pub use speaker::{build_speaker, NullSpeaker, Speaker, TtsError};
 
 #[cfg(test)]
 mod tests {
