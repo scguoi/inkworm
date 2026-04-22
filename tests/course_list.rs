@@ -9,6 +9,7 @@ use inkworm::config::Config;
 use inkworm::storage::course::{load_course, save_course};
 use inkworm::storage::paths::DataPaths;
 use inkworm::storage::progress::Progress;
+use inkworm::tts::speaker::{NullSpeaker, Speaker};
 use tokio::sync::mpsc;
 
 fn key(code: KeyCode) -> Event {
@@ -49,6 +50,7 @@ fn make_app(paths: DataPaths, progress: Progress) -> App {
     let course = active_id
         .as_deref()
         .and_then(|id| load_course(&paths.courses_dir, id).ok());
+    let speaker: Arc<dyn Speaker> = Arc::new(NullSpeaker);
     App::new(
         course,
         progress,
@@ -56,6 +58,7 @@ fn make_app(paths: DataPaths, progress: Progress) -> App {
         Arc::new(SystemClock),
         Config::default(),
         task_tx,
+        speaker,
     )
 }
 
@@ -82,8 +85,8 @@ fn list_command_opens_overlay_and_sorts_newest_first() {
     assert_eq!(state.items[1].meta.id, "course-a");
 }
 
-#[test]
-fn switch_course_updates_active_and_returns_to_study() {
+#[tokio::test]
+async fn switch_course_updates_active_and_returns_to_study() {
     let tmp = tempfile::tempdir().unwrap();
     let paths = DataPaths::for_tests(tmp.path().to_path_buf());
     paths.ensure_dirs().unwrap();
