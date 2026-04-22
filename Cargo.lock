@@ -1052,6 +1052,7 @@ dependencies = [
  "base64",
  "blake3",
  "chrono",
+ "cpal",
  "crossterm",
  "futures",
  "hmac",

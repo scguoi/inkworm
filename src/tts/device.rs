@@ -53,6 +53,10 @@ pub fn should_speak(mode: TtsOverride, device: OutputKind, has_creds: bool) -> b
 /// unrecognized device name. On non-macOS systems where neither tool exists,
 /// also returns `Unknown` (safe default: Auto mode won't trigger TTS).
 pub fn detect_output_kind() -> io::Result<OutputKind> {
+    // Try CPAL first (most reliable, works with Bluetooth devices)
+    if let Some(name) = try_cpal_device()? {
+        return Ok(classify(&name));
+    }
     if let Some(name) = try_switchaudiosource()? {
         return Ok(classify(&name));
     }
@@ -60,6 +64,17 @@ pub fn detect_output_kind() -> io::Result<OutputKind> {
         return Ok(classify(&name));
     }
     Ok(OutputKind::Unknown)
+}
+
+fn try_cpal_device() -> io::Result<Option<String>> {
+    use cpal::traits::{DeviceTrait, HostTrait};
+    let host = cpal::default_host();
+    if let Some(device) = host.default_output_device() {
+        if let Ok(name) = device.name() {
+            return Ok(Some(name));
+        }
+    }
+    Ok(None)
 }
 
 fn try_switchaudiosource() -> io::Result<Option<String>> {
@@ -95,8 +110,8 @@ fn try_system_profiler() -> io::Result<Option<String>> {
         return Ok(None);
     }
     let text = String::from_utf8_lossy(&output.stdout);
-    // Walk lines; track the most recent 4-space-indented "DeviceName:" heading.
-    // When a "Default Output Device: Yes" appears under it, return that heading.
+    // Walk lines; track the most recent 4-space-indented device name heading.
+    // When "Default Output Device: Yes" or "Output Source: Default" appears under it, return that heading.
     let mut last_heading: Option<String> = None;
     for line in text.lines() {
         if line.starts_with("    ") && !line.starts_with("     ") && line.trim_end().ends_with(':')
@@ -106,7 +121,7 @@ fn try_system_profiler() -> io::Result<Option<String>> {
                 last_heading = Some(name);
             }
         }
-        if line.contains("Default Output Device: Yes") {
+        if line.contains("Default Output Device: Yes") || line.contains("Output Source: Default") {
             if let Some(name) = last_heading.take() {
                 return Ok(Some(name));
             }

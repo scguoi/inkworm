@@ -110,21 +110,33 @@ impl App {
     /// spawn a new speak for its English text. Safe to call on any state
     /// transition — no-ops cleanly when no drill is active.
     pub fn speak_current_drill(&self) {
+        tracing::debug!("speak_current_drill called");
         self.speaker.cancel();
         if self.tts_session_disabled {
+            tracing::debug!("TTS session disabled, skipping");
             return;
         }
         let Some(drill) = self.study.current_drill() else {
+            tracing::debug!("No current drill, skipping");
             return;
         };
-        if !should_speak(
+        let should = should_speak(
             self.config.tts.r#override,
             self.current_device,
             self.tts_has_creds(),
-        ) {
+        );
+        tracing::debug!(
+            "should_speak check: override={:?}, device={:?}, has_creds={}, result={}",
+            self.config.tts.r#override,
+            self.current_device,
+            self.tts_has_creds(),
+            should
+        );
+        if !should {
             return;
         }
         let text = drill.english.clone();
+        tracing::info!("Spawning TTS task for text: {}", text);
         let speaker = Arc::clone(&self.speaker);
         let last_error = Arc::clone(&self.last_tts_error);
         let task_tx = self.task_tx.clone();
