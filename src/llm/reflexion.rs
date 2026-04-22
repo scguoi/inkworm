@@ -70,7 +70,30 @@ impl<'a> Reflexion<'a> {
             if self.cancel.is_cancelled() {
                 return Err(ReflexionError::Cancelled);
             }
-            let raw = self.client.chat(req.clone(), self.cancel.clone()).await?;
+            let start = std::time::Instant::now();
+            let result = self.client.chat(req.clone(), self.cancel.clone()).await;
+            let duration_ms = start.elapsed().as_millis();
+            match &result {
+                Ok(ref _content) => {
+                    tracing::info!(
+                        model = %self.model,
+                        attempt = attempt,
+                        duration_ms = duration_ms,
+                        result = "ok",
+                        "LLM call succeeded"
+                    );
+                }
+                Err(ref e) => {
+                    tracing::error!(
+                        model = %self.model,
+                        attempt = attempt,
+                        duration_ms = duration_ms,
+                        error = %e,
+                        "LLM call failed"
+                    );
+                }
+            }
+            let raw = result?;
             match try_parse_and_validate_phase1(&raw) {
                 Ok(rs) => return Ok(rs),
                 Err(errors) => {
@@ -152,7 +175,30 @@ impl<'a> Reflexion<'a> {
             if self.cancel.is_cancelled() {
                 return Err(ReflexionError::Cancelled);
             }
-            let raw = self.client.chat(req.clone(), self.cancel.clone()).await?;
+            let start = std::time::Instant::now();
+            let result = self.client.chat(req.clone(), self.cancel.clone()).await;
+            let duration_ms = start.elapsed().as_millis();
+            match &result {
+                Ok(ref _content) => {
+                    tracing::info!(
+                        model = %self.model,
+                        attempt = attempt,
+                        duration_ms = duration_ms,
+                        result = "ok",
+                        "LLM call succeeded"
+                    );
+                }
+                Err(ref e) => {
+                    tracing::error!(
+                        model = %self.model,
+                        attempt = attempt,
+                        duration_ms = duration_ms,
+                        error = %e,
+                        "LLM call failed"
+                    );
+                }
+            }
+            let raw = result?;
             match try_parse_and_validate_phase2(&raw, &sentence.english) {
                 Ok(rd) => return Ok(rd),
                 Err(errors) => {
@@ -210,7 +256,12 @@ impl<'a> Reflexion<'a> {
                     if result.is_ok() {
                         let done = done_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
                         if let Some(tx) = progress_tx {
-                            let _ = tx.send(crate::ui::task_msg::GenerateProgress::Phase2Progress { done, total }).await;
+                            let _ = tx
+                                .send(crate::ui::task_msg::GenerateProgress::Phase2Progress {
+                                    done,
+                                    total,
+                                })
+                                .await;
                         }
                     }
                     result
@@ -232,15 +283,21 @@ impl<'a> Reflexion<'a> {
         progress_tx: Option<tokio::sync::mpsc::Sender<crate::ui::task_msg::GenerateProgress>>,
     ) -> Result<ReflexionOutcome, ReflexionError> {
         if let Some(tx) = &progress_tx {
-            let _ = tx.send(crate::ui::task_msg::GenerateProgress::Phase1Started).await;
+            let _ = tx
+                .send(crate::ui::task_msg::GenerateProgress::Phase1Started)
+                .await;
         }
         let phase1 = self.reflexion_split(article).await?;
         if let Some(tx) = &progress_tx {
-            let _ = tx.send(crate::ui::task_msg::GenerateProgress::Phase1Done {
-                sentence_count: phase1.sentences.len(),
-            }).await;
+            let _ = tx
+                .send(crate::ui::task_msg::GenerateProgress::Phase1Done {
+                    sentence_count: phase1.sentences.len(),
+                })
+                .await;
         }
-        let phase2 = self.orchestrate_phase2(&phase1.sentences, progress_tx).await?;
+        let phase2 = self
+            .orchestrate_phase2(&phase1.sentences, progress_tx)
+            .await?;
         let course = build_course(
             &phase1.sentences,
             &phase2,

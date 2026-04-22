@@ -163,10 +163,19 @@ impl IflytekSpeaker {
 #[async_trait]
 impl Speaker for IflytekSpeaker {
     async fn speak(&self, text: &str) -> Result<(), TtsError> {
+        let text_hash = blake3::hash(text.as_bytes()).to_hex().to_string();
+        let start = std::time::Instant::now();
         let path = self.cache_path_for(text);
         if path.exists() {
             let samples = wav::read_wav_pcm(&path)
                 .map_err(|e| TtsError::Cache(format!("cache read: {e}")))?;
+            let duration_ms = start.elapsed().as_millis();
+            tracing::info!(
+                text_hash = %text_hash,
+                cache_hit = true,
+                duration_ms = duration_ms,
+                "TTS cache hit"
+            );
             return self.play_pcm(samples);
         }
 
@@ -185,6 +194,14 @@ impl Speaker for IflytekSpeaker {
         if let Ok(mut guard) = self.stream_handle.lock() {
             *guard = None;
         }
+
+        let duration_ms = start.elapsed().as_millis();
+        tracing::info!(
+            text_hash = %text_hash,
+            cache_hit = false,
+            duration_ms = duration_ms,
+            "TTS synthesis completed"
+        );
 
         // Only cache full recordings. Cache-write failure is non-fatal:
         // we still want to play the audio we have in memory.

@@ -365,7 +365,7 @@ fn build_input_line<'a>(
 mod tests {
     use super::*;
     use crate::clock::FixedClock;
-    use crate::storage::progress::{DrillProgress, SentenceProgress};
+    use crate::storage::progress::DrillProgress;
     use chrono::{TimeZone, Utc};
 
     fn fixture_course() -> Course {

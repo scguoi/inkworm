@@ -68,14 +68,14 @@ pub const COMMANDS: &[Command] = &[
         name: "logs",
         aliases: &[],
         description: "Show log file path",
-        available: false,
+        available: true,
         takes_args: false,
     },
     Command {
         name: "doctor",
         aliases: &[],
         description: "Health check",
-        available: false,
+        available: true,
         takes_args: false,
     },
 ];

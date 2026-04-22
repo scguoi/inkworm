@@ -15,6 +15,7 @@ pub fn render_tts_status(
     device: OutputKind,
     last_error: Option<String>,
     cache_stats: (usize, u64),
+    session_disabled: bool,
 ) {
     let area = frame.area();
     let width = 50u16.min(area.width.saturating_sub(4));
@@ -47,7 +48,7 @@ pub fn render_tts_status(
         "disabled"
     };
 
-    let lines = vec![
+    let mut lines = vec![
         Line::from(Span::styled(
             "TTS Status",
             Style::default()
@@ -67,6 +68,19 @@ pub fn render_tts_status(
             Span::styled("Speaking:   ", Style::default().fg(Color::DarkGray)),
             Span::styled(speaking_str, Style::default().fg(Color::White)),
         ]),
+    ];
+
+    if session_disabled {
+        lines.push(Line::from(vec![
+            Span::styled("Status:     ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "Session disabled (3 consecutive failures)",
+                Style::default().fg(Color::Red),
+            ),
+        ]));
+    }
+
+    lines.extend(vec![
         Line::from(vec![
             Span::styled("Creds:      ", Style::default().fg(Color::DarkGray)),
             Span::styled(creds_str, Style::default().fg(Color::White)),
@@ -84,7 +98,7 @@ pub fn render_tts_status(
             "Esc · close",
             Style::default().fg(Color::DarkGray),
         )),
-    ];
+    ]);
 
     let block = Block::default()
         .borders(Borders::ALL)

@@ -12,6 +12,17 @@ use inkworm::ui::config_wizard::WizardOrigin;
 use inkworm::ui::event::run_loop;
 use inkworm::ui::terminal::{install_panic_hook, TerminalGuard};
 
+fn init_tracing(log_dir: &std::path::Path) {
+    let file_appender = tracing_appender::rolling::never(log_dir, "inkworm.log");
+    let env_filter = tracing_subscriber::EnvFilter::try_from_env("INKWORM_LOG")
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    tracing_subscriber::fmt()
+        .with_env_filter(env_filter)
+        .with_writer(file_appender)
+        .with_ansi(false)
+        .init();
+}
+
 fn main() -> anyhow::Result<()> {
     install_panic_hook();
 
@@ -23,6 +34,9 @@ fn main() -> anyhow::Result<()> {
 
     let paths = DataPaths::resolve(cli_config.as_deref())?;
     paths.ensure_dirs()?;
+
+    init_tracing(&paths.root);
+    tracing::info!("inkworm starting");
 
     let (config, needs_wizard) = match Config::load(&paths.config_file) {
         Ok(c) if c.validate_llm().is_empty() => (c, false),
@@ -89,5 +103,6 @@ fn main() -> anyhow::Result<()> {
         run_loop(&mut guard, &mut app, task_rx).await
     })?;
 
+    tracing::info!("inkworm shutting down");
     Ok(())
 }

@@ -8,6 +8,7 @@ pub enum TaskMsg {
     Generate(GenerateProgress),
     Wizard(WizardTaskMsg),
     DeviceDetected(OutputKind),
+    TtsSpeakResult(Result<(), String>),
 }
 
 /// Progress updates from the Generate background task.
