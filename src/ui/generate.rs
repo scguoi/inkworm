@@ -13,6 +13,7 @@ pub enum GenerateSubstate {
 pub struct PastingState {
     pub text: String,
     pub cursor_pos: usize,
+    pub scroll_offset: usize,
 }
 
 #[derive(Debug)]
@@ -35,6 +36,18 @@ impl PastingState {
         Self {
             text: String::new(),
             cursor_pos: 0,
+            scroll_offset: 0,
+        }
+    }
+
+    pub fn scroll_up(&mut self) {
+        self.scroll_offset = self.scroll_offset.saturating_sub(1);
+    }
+
+    pub fn scroll_down(&mut self, max_visible_lines: usize) {
+        let total_lines = self.text.lines().count();
+        if self.scroll_offset + max_visible_lines < total_lines {
+            self.scroll_offset += 1;
         }
     }
 }
@@ -163,7 +176,18 @@ fn render_pasting(frame: &mut Frame, area: Rect, state: &PastingState, max_bytes
     let text_area = Rect::new(0, 0, area.width, text_height);
     let status_y = text_height;
 
-    let para = Paragraph::new(state.text.as_str())
+    // Calculate visible lines with scrolling
+    let lines: Vec<&str> = state.text.lines().collect();
+    let visible_height = text_area.height.saturating_sub(2) as usize; // Subtract border
+    let visible_lines = lines
+        .iter()
+        .skip(state.scroll_offset)
+        .take(visible_height)
+        .copied()
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let para = Paragraph::new(visible_lines)
         .block(
             Block::default()
                 .borders(Borders::ALL)
@@ -171,6 +195,18 @@ fn render_pasting(frame: &mut Frame, area: Rect, state: &PastingState, max_bytes
         )
         .wrap(Wrap { trim: false });
     frame.render_widget(para, text_area);
+
+    // Show scroll indicator if needed
+    if lines.len() > visible_height {
+        let scroll_indicator = format!(" {}/{} ", state.scroll_offset + 1, lines.len());
+        let indicator_para = Paragraph::new(scroll_indicator)
+            .style(Style::default().fg(Color::DarkGray))
+            .alignment(ratatui::layout::Alignment::Right);
+        frame.render_widget(
+            indicator_para,
+            Rect::new(0, 0, area.width, 1),
+        );
+    }
 
     let byte_count = state.byte_count();
     let word_count = state.word_count();
@@ -193,6 +229,20 @@ fn render_pasting(frame: &mut Frame, area: Rect, state: &PastingState, max_bytes
     );
     let status = Paragraph::new(status_text).style(Style::default().fg(status_color));
     frame.render_widget(status, Rect::new(0, status_y, area.width, 1));
+
+    // Add hint at bottom
+    let hint = if lines.len() > visible_height {
+        "↑↓ scroll · Ctrl+Enter submit · Esc cancel"
+    } else {
+        "Ctrl+Enter submit · Esc cancel"
+    };
+    let hint_para = Paragraph::new(hint)
+        .style(Style::default().fg(Color::DarkGray))
+        .centered();
+    frame.render_widget(
+        hint_para,
+        Rect::new(0, area.height.saturating_sub(1), area.width, 1),
+    );
 }
 
 fn render_running(frame: &mut Frame, area: Rect, state: &RunningState) {

@@ -444,6 +444,17 @@ impl App {
                         self.generate = None;
                         self.screen = Screen::Study;
                     }
+                    KeyCode::Up => {
+                        if let Some(GenerateSubstate::Pasting(ref mut p)) = self.generate {
+                            p.scroll_up();
+                        }
+                    }
+                    KeyCode::Down => {
+                        if let Some(GenerateSubstate::Pasting(ref mut p)) = self.generate {
+                            let area_height = 20; // approximate visible lines
+                            p.scroll_down(area_height);
+                        }
+                    }
                     KeyCode::Char(c) => {
                         if let Some(GenerateSubstate::Pasting(ref mut p)) = self.generate {
                             p.type_char(c);
