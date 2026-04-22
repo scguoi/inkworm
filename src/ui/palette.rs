@@ -186,14 +186,29 @@ pub fn render_palette(frame: &mut Frame, state: &PaletteState) {
     ]));
     frame.render_widget(input_line, Rect::new(0, 0, area.width, 1));
 
-    // Command list below input
+    // Command list below input with scrolling
     if !matches.is_empty() {
         let list_height = area.height.saturating_sub(1);
-        let items: Vec<ListItem> = matches
+        let visible_count = list_height as usize;
+
+        // Calculate scroll offset to keep selected item visible
+        let scroll_offset = if state.selected < visible_count {
+            0
+        } else {
+            state.selected - visible_count + 1
+        };
+
+        // Only render visible items
+        let visible_matches = matches
             .iter()
-            .enumerate()
-            .map(|(i, cmd)| {
-                let name_style = if i == state.selected {
+            .skip(scroll_offset)
+            .take(visible_count)
+            .enumerate();
+
+        let items: Vec<ListItem> = visible_matches
+            .map(|(visible_idx, cmd)| {
+                let actual_idx = scroll_offset + visible_idx;
+                let name_style = if actual_idx == state.selected {
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD)
@@ -216,8 +231,18 @@ pub fn render_palette(frame: &mut Frame, state: &PaletteState) {
                 ]))
             })
             .collect();
+
         let list = List::new(items);
         frame.render_widget(list, Rect::new(0, 1, area.width, list_height));
+
+        // Show scroll indicator if there are more items
+        if matches.len() > visible_count {
+            let indicator = format!(" {}/{} ", state.selected + 1, matches.len());
+            let indicator_para = Paragraph::new(indicator)
+                .style(Style::default().fg(Color::DarkGray))
+                .alignment(ratatui::layout::Alignment::Right);
+            frame.render_widget(indicator_para, Rect::new(0, 0, area.width, 1));
+        }
     }
 }
 
