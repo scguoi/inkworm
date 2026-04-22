@@ -116,6 +116,11 @@ impl App {
             tracing::debug!("TTS session disabled, skipping");
             return;
         }
+        // Don't speak if course is complete
+        if *self.study.phase() == crate::ui::study::StudyPhase::Complete {
+            tracing::debug!("Course complete, skipping TTS");
+            return;
+        }
         let Some(drill) = self.study.current_drill() else {
             tracing::debug!("No current drill, skipping");
             return;
