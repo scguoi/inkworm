@@ -176,23 +176,24 @@ pub fn render_palette(frame: &mut Frame, state: &PaletteState) {
     let area = frame.area();
     let matches = state.matches();
 
-    let list_height = (matches.len() as u16)
-        .min(10)
-        .min(area.height.saturating_sub(3));
-    let total_height = list_height + 1;
-    let y = area.height.saturating_sub(total_height);
-    let width = 60u16.min(area.width);
-    let x = (area.width.saturating_sub(width)) / 2;
+    // Full screen overlay with Clear
+    frame.render_widget(Clear, area);
 
-    let palette_rect = Rect::new(x, y, width, total_height);
-    frame.render_widget(Clear, palette_rect);
+    // Input line at top
+    let input_line = Paragraph::new(Line::from(vec![
+        Span::styled("> ", Style::default().fg(Color::DarkGray)),
+        Span::styled(state.input.clone(), Style::default().fg(Color::White)),
+    ]));
+    frame.render_widget(input_line, Rect::new(0, 0, area.width, 1));
 
+    // Command list below input
     if !matches.is_empty() {
+        let list_height = area.height.saturating_sub(1);
         let items: Vec<ListItem> = matches
             .iter()
             .enumerate()
             .map(|(i, cmd)| {
-                let style = if i == state.selected {
+                let name_style = if i == state.selected {
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD)
@@ -201,25 +202,23 @@ pub fn render_palette(frame: &mut Frame, state: &PaletteState) {
                 } else {
                     Style::default().fg(Color::DarkGray)
                 };
+
+                let desc_style = Style::default().fg(Color::DarkGray);
                 let suffix = if !cmd.available { " (coming soon)" } else { "" };
+
+                // Two-column layout: command name (left) | description (right)
+                let name_width = 30;
+                let name_text = format!("/{:<width$}", cmd.name, width = name_width - 1);
+
                 ListItem::new(Line::from(vec![
-                    Span::styled(format!("/{}", cmd.name), style),
-                    Span::styled(
-                        format!("  {}{}", cmd.description, suffix),
-                        Style::default().fg(Color::DarkGray),
-                    ),
+                    Span::styled(name_text, name_style),
+                    Span::styled(format!("{}{}", cmd.description, suffix), desc_style),
                 ]))
             })
             .collect();
         let list = List::new(items);
-        frame.render_widget(list, Rect::new(x, y, width, list_height));
+        frame.render_widget(list, Rect::new(0, 1, area.width, list_height));
     }
-
-    let input_line = Paragraph::new(Line::from(vec![
-        Span::styled("> ", Style::default().fg(Color::DarkGray)),
-        Span::styled(state.input.clone(), Style::default().fg(Color::White)),
-    ]));
-    frame.render_widget(input_line, Rect::new(x, y + list_height, width, 1));
 }
 
 pub fn render_help(frame: &mut Frame) {
