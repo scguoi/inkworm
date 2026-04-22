@@ -333,6 +333,7 @@ impl App {
         }
         match self.study.feedback() {
             FeedbackState::Correct => {
+                let _ = self.study.progress().save(&self.data_paths.progress_file);
                 self.study.advance();
                 self.speak_current_drill();
             }
