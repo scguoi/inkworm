@@ -85,7 +85,10 @@ pub fn run_checks(
         if path.exists() && path.is_dir() {
             results.push(CheckResult::pass(name));
         } else {
-            results.push(CheckResult::fail(name, format!("missing: {}", path.display())));
+            results.push(CheckResult::fail(
+                name,
+                format!("missing: {}", path.display()),
+            ));
         }
     }
 
@@ -152,7 +155,10 @@ pub fn render_doctor(frame: &mut Frame, results: &[CheckResult]) {
         };
         let mut spans = vec![
             Span::styled(format!("{} ", icon), Style::default().fg(icon_color)),
-            Span::styled(format!("{:<20}", result.label), Style::default().fg(Color::White)),
+            Span::styled(
+                format!("{:<20}", result.label),
+                Style::default().fg(Color::White),
+            ),
         ];
         if let Some(ref detail) = result.detail {
             spans.push(Span::styled(
@@ -175,5 +181,3 @@ pub fn render_doctor(frame: &mut Frame, results: &[CheckResult]) {
     let para = Paragraph::new(lines).block(block);
     frame.render_widget(para, rect);
 }
-
-

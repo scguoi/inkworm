@@ -688,7 +688,6 @@ impl App {
         self.screen = Screen::Doctor;
     }
 
-
     fn quit(&mut self) {
         self.speaker.cancel();
         let _ = self.study.progress().save(&self.data_paths.progress_file);

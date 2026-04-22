@@ -73,7 +73,10 @@ pub fn render_tts_status(
     if session_disabled {
         lines.push(Line::from(vec![
             Span::styled("Status:     ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Session disabled (3 consecutive failures)", Style::default().fg(Color::Red)),
+            Span::styled(
+                "Session disabled (3 consecutive failures)",
+                Style::default().fg(Color::Red),
+            ),
         ]));
     }
 

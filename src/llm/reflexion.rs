@@ -256,7 +256,12 @@ impl<'a> Reflexion<'a> {
                     if result.is_ok() {
                         let done = done_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
                         if let Some(tx) = progress_tx {
-                            let _ = tx.send(crate::ui::task_msg::GenerateProgress::Phase2Progress { done, total }).await;
+                            let _ = tx
+                                .send(crate::ui::task_msg::GenerateProgress::Phase2Progress {
+                                    done,
+                                    total,
+                                })
+                                .await;
                         }
                     }
                     result
@@ -278,15 +283,21 @@ impl<'a> Reflexion<'a> {
         progress_tx: Option<tokio::sync::mpsc::Sender<crate::ui::task_msg::GenerateProgress>>,
     ) -> Result<ReflexionOutcome, ReflexionError> {
         if let Some(tx) = &progress_tx {
-            let _ = tx.send(crate::ui::task_msg::GenerateProgress::Phase1Started).await;
+            let _ = tx
+                .send(crate::ui::task_msg::GenerateProgress::Phase1Started)
+                .await;
         }
         let phase1 = self.reflexion_split(article).await?;
         if let Some(tx) = &progress_tx {
-            let _ = tx.send(crate::ui::task_msg::GenerateProgress::Phase1Done {
-                sentence_count: phase1.sentences.len(),
-            }).await;
+            let _ = tx
+                .send(crate::ui::task_msg::GenerateProgress::Phase1Done {
+                    sentence_count: phase1.sentences.len(),
+                })
+                .await;
         }
-        let phase2 = self.orchestrate_phase2(&phase1.sentences, progress_tx).await?;
+        let phase2 = self
+            .orchestrate_phase2(&phase1.sentences, progress_tx)
+            .await?;
         let course = build_course(
             &phase1.sentences,
             &phase2,
