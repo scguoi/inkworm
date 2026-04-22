@@ -53,6 +53,7 @@ pub struct App {
     pub tts_failure_count: u32,
     pub tts_session_disabled: bool,
     pub doctor_results: Option<Vec<crate::ui::doctor::CheckResult>>,
+    pub info_banner: Option<String>,
 }
 
 impl App {
@@ -87,6 +88,7 @@ impl App {
             tts_failure_count: 0,
             tts_session_disabled: false,
             doctor_results: None,
+            info_banner: None,
         }
     }
 
@@ -300,6 +302,12 @@ impl App {
     }
 
     fn handle_study_key(&mut self, key: KeyEvent) {
+        // Clear info banner on any key
+        if self.info_banner.is_some() {
+            self.info_banner = None;
+            return;
+        }
+
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             match key.code {
                 KeyCode::Char('p') => {
@@ -673,7 +681,7 @@ impl App {
                 child.wait()
             });
 
-        eprintln!("Log path copied to clipboard: {}", path_str);
+        self.info_banner = Some(format!("Copied to clipboard: {}", path_str));
         self.screen = Screen::Study;
     }
 
@@ -697,7 +705,21 @@ impl App {
     pub fn render(&self, frame: &mut Frame) {
         match &self.screen {
             Screen::Study => {
-                crate::ui::study::render_study(frame, &self.study, self.cursor_visible)
+                crate::ui::study::render_study(frame, &self.study, self.cursor_visible);
+                if let Some(ref banner) = self.info_banner {
+                    use ratatui::{
+                        layout::Rect,
+                        style::{Color, Style},
+                        text::Line,
+                        widgets::Paragraph,
+                    };
+                    let area = frame.area();
+                    let y = area.height.saturating_sub(1);
+                    let para = Paragraph::new(Line::from(banner.as_str()))
+                        .style(Style::default().fg(Color::Yellow))
+                        .centered();
+                    frame.render_widget(para, Rect::new(0, y, area.width, 1));
+                }
             }
             Screen::Palette => {
                 crate::ui::study::render_study(frame, &self.study, self.cursor_visible);
