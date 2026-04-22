@@ -75,7 +75,7 @@ pub const COMMANDS: &[Command] = &[
         name: "doctor",
         aliases: &[],
         description: "Health check",
-        available: false,
+        available: true,
         takes_args: false,
     },
 ];

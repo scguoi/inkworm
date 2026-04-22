@@ -28,6 +28,7 @@ pub enum Screen {
     ConfigWizard,
     CourseList,
     TtsStatus,
+    Doctor,
 }
 
 pub struct App {
@@ -49,6 +50,7 @@ pub struct App {
     pub current_device: OutputKind,
     device_probe_counter: u32,
     pub last_tts_error: Arc<tokio::sync::Mutex<Option<String>>>,
+    pub doctor_results: Option<Vec<crate::ui::doctor::CheckResult>>,
 }
 
 impl App {
@@ -80,6 +82,7 @@ impl App {
             current_device: OutputKind::Unknown,
             device_probe_counter: 0,
             last_tts_error: Arc::new(tokio::sync::Mutex::new(None)),
+            doctor_results: None,
         }
     }
 
@@ -185,6 +188,12 @@ impl App {
                 Screen::CourseList => self.handle_course_list_key(key),
                 Screen::TtsStatus => {
                     if key.code == KeyCode::Esc {
+                        self.screen = Screen::Study;
+                    }
+                }
+                Screen::Doctor => {
+                    if key.code == KeyCode::Esc {
+                        self.doctor_results = None;
                         self.screen = Screen::Study;
                     }
                 }
@@ -589,6 +598,7 @@ impl App {
                 }
             }
             "logs" => self.execute_logs(),
+            "doctor" => self.execute_doctor(),
             _ => {}
         }
     }
@@ -635,6 +645,18 @@ impl App {
         eprintln!("Log path copied to clipboard: {}", path_str);
         self.screen = Screen::Study;
     }
+
+    fn execute_doctor(&mut self) {
+        let results = crate::ui::doctor::run_checks(
+            &self.config,
+            &self.data_paths,
+            Some(self.speaker.as_ref()),
+            self.current_device,
+        );
+        self.doctor_results = Some(results);
+        self.screen = Screen::Doctor;
+    }
+
 
     fn quit(&mut self) {
         self.speaker.cancel();
@@ -695,6 +717,12 @@ impl App {
                     last_error,
                     cache_stats,
                 );
+            }
+            Screen::Doctor => {
+                crate::ui::study::render_study(frame, &self.study, self.cursor_visible);
+                if let Some(ref results) = self.doctor_results {
+                    crate::ui::doctor::render_doctor(frame, results);
+                }
             }
         }
     }

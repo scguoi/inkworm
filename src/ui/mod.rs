@@ -1,5 +1,6 @@
 pub mod config_wizard;
 pub mod course_list;
+pub mod doctor;
 pub mod error_banner;
 pub mod event;
 pub mod generate;
