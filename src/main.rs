@@ -7,6 +7,7 @@ use inkworm::config::Config;
 use inkworm::storage::course::load_course;
 use inkworm::storage::paths::DataPaths;
 use inkworm::storage::progress::Progress;
+use inkworm::tts::speaker::build_speaker;
 use inkworm::ui::config_wizard::WizardOrigin;
 use inkworm::ui::event::run_loop;
 use inkworm::ui::terminal::{install_panic_hook, TerminalGuard};
@@ -44,6 +45,26 @@ fn main() -> anyhow::Result<()> {
         .as_deref()
         .and_then(|id| load_course(&paths.courses_dir, id).ok());
 
+    // Try to open a rodio OutputStream once, up-front. `OutputStream` itself
+    // is `!Send` and must stay alive on this (main) thread for audio to
+    // continue playing. We pass its `OutputStreamHandle` (Send+Sync) into
+    // the speaker. On failure we fall back to cache-only mode — the user
+    // can still warm the cache via /tts on, but playback is disabled.
+    let (_output_stream, audio_handle) = match rodio::OutputStream::try_default() {
+        Ok((stream, handle)) => (Some(stream), Some(handle)),
+        Err(e) => {
+            eprintln!("TTS: audio device unavailable ({e}). Playback disabled.");
+            (None, None)
+        }
+    };
+
+    let speaker: Arc<dyn inkworm::tts::speaker::Speaker> = Arc::from(build_speaker(
+        &config.tts.iflytek,
+        paths.tts_cache_dir.clone(),
+        config.tts.r#override,
+        audio_handle,
+    ));
+
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
@@ -58,10 +79,13 @@ fn main() -> anyhow::Result<()> {
             Arc::new(SystemClock),
             config,
             task_tx,
+            speaker,
         );
         if needs_wizard {
             app.open_wizard(WizardOrigin::FirstRun);
         }
+        // Speak the current drill on startup (no-op if no course loaded).
+        app.speak_current_drill();
         run_loop(&mut guard, &mut app, task_rx).await
     })?;
 
