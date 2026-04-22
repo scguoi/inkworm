@@ -184,6 +184,19 @@ fn render_pasting(frame: &mut Frame, area: Rect, state: &PastingState, max_bytes
         .scroll((state.scroll_offset as u16, 0));
     frame.render_widget(para, text_area);
 
+    // Show cursor at end of text
+    let lines: Vec<&str> = state.text.lines().collect();
+    let last_line = lines.last().map(|s| s.len()).unwrap_or(0);
+    let cursor_line = lines.len().saturating_sub(1).saturating_sub(state.scroll_offset);
+
+    // Only show cursor if it's in visible area
+    let visible_height = text_area.height.saturating_sub(2); // Subtract borders
+    if cursor_line < visible_height as usize {
+        let cursor_x = text_area.x + 1 + (last_line as u16).min(text_area.width.saturating_sub(3));
+        let cursor_y = text_area.y + 1 + cursor_line as u16;
+        frame.set_cursor_position((cursor_x, cursor_y));
+    }
+
     let byte_count = state.byte_count();
     let word_count = state.word_count();
     let can_submit = state.can_submit(max_bytes);
