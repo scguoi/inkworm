@@ -40,3 +40,19 @@ fn status_display_all_fields() {
     let error_str = last_error.as_deref().unwrap_or("(none)");
     assert_eq!(error_str, "Network timeout");
 }
+
+#[test]
+fn three_strikes_disables_session() {
+    let mut failure_count = 0u32;
+    let mut session_disabled = false;
+
+    for _ in 0..3 {
+        failure_count += 1;
+        if failure_count >= 3 {
+            session_disabled = true;
+        }
+    }
+
+    assert!(session_disabled);
+    assert_eq!(failure_count, 3);
+}

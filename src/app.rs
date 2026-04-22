@@ -50,6 +50,8 @@ pub struct App {
     pub current_device: OutputKind,
     device_probe_counter: u32,
     pub last_tts_error: Arc<tokio::sync::Mutex<Option<String>>>,
+    pub tts_failure_count: u32,
+    pub tts_session_disabled: bool,
     pub doctor_results: Option<Vec<crate::ui::doctor::CheckResult>>,
 }
 
@@ -82,6 +84,8 @@ impl App {
             current_device: OutputKind::Unknown,
             device_probe_counter: 0,
             last_tts_error: Arc::new(tokio::sync::Mutex::new(None)),
+            tts_failure_count: 0,
+            tts_session_disabled: false,
             doctor_results: None,
         }
     }
@@ -105,6 +109,9 @@ impl App {
     /// transition — no-ops cleanly when no drill is active.
     pub fn speak_current_drill(&self) {
         self.speaker.cancel();
+        if self.tts_session_disabled {
+            return;
+        }
         let Some(drill) = self.study.current_drill() else {
             return;
         };
@@ -118,9 +125,21 @@ impl App {
         let text = drill.english.clone();
         let speaker = Arc::clone(&self.speaker);
         let last_error = Arc::clone(&self.last_tts_error);
+        let task_tx = self.task_tx.clone();
         tokio::spawn(async move {
-            if let Err(e) = speaker.speak(&text).await {
-                *last_error.lock().await = Some(format!("{}", e));
+            let result = speaker.speak(&text).await;
+            match &result {
+                Ok(()) => {
+                    *last_error.lock().await = None;
+                }
+                Err(e) => {
+                    let msg = format!("{}", e);
+                    *last_error.lock().await = Some(msg.clone());
+                    let _ = task_tx.send(TaskMsg::TtsSpeakResult(Err(msg))).await;
+                }
+            }
+            if result.is_ok() {
+                let _ = task_tx.send(TaskMsg::TtsSpeakResult(Ok(()))).await;
             }
         });
     }
@@ -216,6 +235,18 @@ impl App {
             TaskMsg::DeviceDetected(kind) => {
                 self.current_device = kind;
             }
+            TaskMsg::TtsSpeakResult(result) => match result {
+                Ok(()) => {
+                    self.tts_failure_count = 0;
+                }
+                Err(_) => {
+                    self.tts_failure_count += 1;
+                    if self.tts_failure_count >= 3 {
+                        self.tts_session_disabled = true;
+                        tracing::warn!("TTS session disabled after 3 consecutive failures");
+                    }
+                }
+            },
         }
     }
 
@@ -716,6 +747,7 @@ impl App {
                     self.current_device,
                     last_error,
                     cache_stats,
+                    self.tts_session_disabled,
                 );
             }
             Screen::Doctor => {
