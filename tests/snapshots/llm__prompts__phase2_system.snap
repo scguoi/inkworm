@@ -25,6 +25,8 @@ Rules:
 - `stage` is 1-indexed and strictly increasing.
 - `chinese` is 1-200 chars. `english` is 1-50 words.
 - `soundmark` REQUIREMENTS:
-  * ALL stages (including "full") MUST provide IPA wrapped in /slashes/ per word. Example: "/ækt/ /təˈwɔːrd/"
+  * Must be IPA pronunciation of the ENGLISH text, NOT the Chinese text
+  * ALL stages (including "full") MUST provide IPA wrapped in /slashes/ per word. Example: "/sɛns/ /wɛər/ /juː/ /ɑːr/"
+  * NEVER use Chinese pinyin or Chinese phonetics — only English IPA
   * NEVER leave soundmark empty for any stage
 - Return JSON only.
