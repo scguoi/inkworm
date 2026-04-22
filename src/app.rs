@@ -411,32 +411,34 @@ impl App {
 
         match gen_state {
             GenerateSubstate::Pasting(_) => {
-                if key.modifiers.contains(KeyModifiers::CONTROL) {
-                    match key.code {
-                        KeyCode::Char('c') => {
-                            self.quit();
-                            return;
-                        }
-                        KeyCode::Enter => {
-                            let can_submit =
-                                if let Some(GenerateSubstate::Pasting(p)) = &self.generate {
-                                    p.can_submit(self.config.generation.max_article_bytes)
-                                } else {
-                                    false
-                                };
-                            if can_submit {
-                                let text =
-                                    if let Some(GenerateSubstate::Pasting(p)) = &self.generate {
-                                        p.get_text()
-                                    } else {
-                                        return;
-                                    };
-                                self.submit_generate(text);
-                            }
-                            return;
-                        }
-                        _ => {}
+                // Ctrl+C: quit
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && key.code == KeyCode::Char('c')
+                {
+                    self.quit();
+                    return;
+                }
+                // Ctrl+D or F5: submit
+                let is_submit = (key.modifiers.contains(KeyModifiers::CONTROL)
+                    && key.code == KeyCode::Char('d'))
+                    || key.code == KeyCode::F(5);
+                if is_submit {
+                    let can_submit =
+                        if let Some(GenerateSubstate::Pasting(p)) = &self.generate {
+                            p.can_submit(self.config.generation.max_article_bytes)
+                        } else {
+                            false
+                        };
+                    if can_submit {
+                        let text =
+                            if let Some(GenerateSubstate::Pasting(p)) = &self.generate {
+                                p.get_text()
+                            } else {
+                                return;
+                            };
+                        self.submit_generate(text);
                     }
+                    return;
                 }
                 if key.code == KeyCode::Esc {
                     self.generate = None;

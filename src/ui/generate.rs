@@ -43,7 +43,7 @@ impl PastingState {
         textarea.set_block(
             ratatui::widgets::Block::default()
                 .borders(ratatui::widgets::Borders::ALL)
-                .title("Paste Article (Ctrl+Enter to submit)"),
+                .title("Paste Article (Ctrl+D to submit)"),
         );
         Self { textarea }
     }
@@ -188,7 +188,7 @@ fn render_pasting(frame: &mut Frame, area: Rect, state: &PastingState, max_bytes
     let status = Paragraph::new(status_text).style(Style::default().fg(status_color));
     frame.render_widget(status, Rect::new(0, status_y, area.width, 1));
 
-    let hint = "Ctrl+Enter submit · Esc cancel";
+    let hint = "Ctrl+D submit · Esc cancel";
     let hint_para = Paragraph::new(hint)
         .style(Style::default().fg(Color::DarkGray))
         .centered();
