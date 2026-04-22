@@ -30,6 +30,8 @@ pub fn clear_cache(dir: &Path) -> io::Result<usize> {
     Ok(removed)
 }
 
+pub mod auth;
+
 #[cfg(test)]
 mod tests {
     use super::*;
