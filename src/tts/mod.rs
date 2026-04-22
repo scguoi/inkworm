@@ -33,9 +33,11 @@ pub fn clear_cache(dir: &Path) -> io::Result<usize> {
 pub mod auth;
 pub mod cache;
 pub mod frame;
+pub mod iflytek;
 pub mod speaker;
 pub mod wav;
 
+pub use iflytek::IflytekSpeaker;
 pub use speaker::{build_speaker, NullSpeaker, Speaker, TtsError};
 
 #[cfg(test)]
