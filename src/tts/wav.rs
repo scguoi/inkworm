@@ -37,6 +37,9 @@ pub fn write_wav_atomic(path: &Path, samples: &[i16]) -> io::Result<()> {
             .finalize()
             .map_err(|e| io::Error::other(format!("wav finalize: {e}")))?;
     }
+    // Re-open the finalized tmp file by path to fsync its contents before
+    // rename (mirroring storage::atomic::write_atomic semantics).
+    File::open(&tmp_path)?.sync_all()?;
     fs::rename(&tmp_path, path)?;
     if let Some(parent) = path.parent() {
         if let Ok(dir) = File::open(parent) {
@@ -49,8 +52,8 @@ pub fn write_wav_atomic(path: &Path, samples: &[i16]) -> io::Result<()> {
 /// Read a previously-written WAV file back into an i16 PCM buffer.
 /// Returns an error if the format does not match our fixed spec.
 pub fn read_wav_pcm(path: &Path) -> io::Result<Vec<i16>> {
-    let reader = hound::WavReader::open(path)
-        .map_err(|e| io::Error::other(format!("wav open: {e}")))?;
+    let reader =
+        hound::WavReader::open(path).map_err(|e| io::Error::other(format!("wav open: {e}")))?;
     let header = reader.spec();
     if header.channels != CHANNELS
         || header.sample_rate != SAMPLE_RATE
