@@ -1,0 +1,5 @@
+---
+source: src/tts/auth.rs
+expression: url
+---
+wss://tts-api.xfyun.cn/v2/tts?authorization=YXBpX2tleT0idGVzdC1rZXkiLCBhbGdvcml0aG09ImhtYWMtc2hhMjU2IiwgaGVhZGVycz0iaG9zdCBkYXRlIHJlcXVlc3QtbGluZSIsIHNpZ25hdHVyZT0iNXhJNkpLOVJucEJ2a1Z2dUNuNERzL1FJc092bUE3aVBnKzA0VkZZd3FXbz0i&date=Sat%2C%2018%20Apr%202026%2003%3A45%3A12%20GMT&host=tts-api.xfyun.cn
