@@ -92,7 +92,15 @@ impl PaletteState {
             selected: 0,
         }
     }
+}
 
+impl Default for PaletteState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PaletteState {
     /// Split input into (command_word, args). Strips the leading `/` and
     /// extra whitespace between tokens.
     pub fn parse(&self) -> (String, Vec<String>) {

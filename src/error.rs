@@ -19,6 +19,9 @@ pub enum AppError {
     #[error("llm error: {0}")]
     Llm(#[from] LlmError),
 
+    #[error("TTS error: {0}")]
+    Tts(#[from] crate::tts::speaker::TtsError),
+
     #[error("reflexion failed after {attempts} attempts; raw saved to {saved_to:?}")]
     Reflexion {
         attempts: u32,
