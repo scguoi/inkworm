@@ -336,12 +336,11 @@ impl App {
                 self.study.advance();
                 self.speak_current_drill();
             }
-            FeedbackState::Wrong { .. } => match key.code {
-                KeyCode::Char(c) => self.study.type_char(c),
-                KeyCode::Backspace => self.study.backspace(),
-                KeyCode::Enter => self.study.submit(self.clock.as_ref()),
-                _ => {}
-            },
+            FeedbackState::Wrong { .. } => {
+                // Any key press clears input and restarts
+                self.study.clear_and_restart();
+                self.speak_current_drill();
+            }
             FeedbackState::Typing => match key.code {
                 KeyCode::Char(c) => self.study.type_char(c),
                 KeyCode::Backspace => self.study.backspace(),

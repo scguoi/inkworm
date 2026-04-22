@@ -95,6 +95,12 @@ fn main() -> anyhow::Result<()> {
             task_tx,
             speaker,
         );
+
+        // Detect device synchronously on startup so first TTS works
+        app.current_device = tokio::task::spawn_blocking(|| {
+            inkworm::tts::device::detect_output_kind().unwrap_or(inkworm::tts::OutputKind::Unknown)
+        }).await.unwrap_or(inkworm::tts::OutputKind::Unknown);
+
         if needs_wizard {
             app.open_wizard(WizardOrigin::FirstRun);
         }

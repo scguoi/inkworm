@@ -44,10 +44,18 @@ Output ONLY JSON, no fences, no commentary. Schema:
 Rules:
 - Produce 3 to 5 drills from easy to hard.
 - Valid `focus` values: "keywords" | "skeleton" | "clause" | "full".
-- Order must progress: keywords (1–5 key words), then skeleton (subject-verb-object core), optionally clause (one modifier layer), and a final "full" stage.
+- Progressive order:
+  1. keywords: Core phrase (2-5 words), MUST be a meaningful phrase, NOT a word list. Example: "act toward" not "act, toward"
+  2. skeleton: Subject-verb-object core structure
+  3. clause (optional): Add one modifier layer
+  4. full: Complete sentence
 - The LAST drill MUST have focus="full" and its english MUST match the input english verbatim.
 - `stage` is 1-indexed and strictly increasing.
-- `chinese` is 1-200 chars. `english` is 1-50 words. `soundmark` is IPA wrapped in /slashes/ per word, or an empty string.
+- `chinese` is 1-200 chars. `english` is 1-50 words.
+- `soundmark` REQUIREMENTS:
+  * For focus="keywords", "skeleton", "clause": MUST provide IPA wrapped in /slashes/ per word. Example: "/ækt/ /təˈwɔːrd/"
+  * For focus="full": empty string is allowed (but IPA is preferred)
+  * NEVER leave soundmark empty for non-full stages
 - Return JSON only.
 "#;
 

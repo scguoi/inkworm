@@ -186,6 +186,11 @@ impl StudyState {
         self.next_drill();
     }
 
+    pub fn clear_and_restart(&mut self) {
+        self.input.clear();
+        self.feedback = FeedbackState::Typing;
+    }
+
     pub fn skip(&mut self) {
         if self.phase != StudyPhase::Active {
             return;
