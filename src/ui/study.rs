@@ -2,7 +2,7 @@ use crate::clock::Clock;
 use crate::judge;
 use crate::storage::course::{Course, Drill};
 use crate::storage::progress::{
-    DrillProgress, Progress, SentenceProgress,
+    Progress,
 };
 use crate::ui::skeleton::skeleton;
 use ratatui::{
@@ -170,11 +170,11 @@ impl StudyState {
         let sp = cp
             .sentences
             .entry(sentence.order.to_string())
-            .or_insert_with(SentenceProgress::default);
+            .or_default();
         let dp = sp
             .drills
             .entry(drill.stage.to_string())
-            .or_insert_with(DrillProgress::default);
+            .or_default();
         dp.mastered_count += 1;
         dp.last_correct_at = Some(clock.now());
     }
@@ -365,6 +365,7 @@ fn build_input_line<'a>(
 mod tests {
     use super::*;
     use crate::clock::FixedClock;
+    use crate::storage::progress::{DrillProgress, SentenceProgress};
     use chrono::{TimeZone, Utc};
 
     fn fixture_course() -> Course {

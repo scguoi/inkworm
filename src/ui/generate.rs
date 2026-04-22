@@ -37,7 +37,15 @@ impl PastingState {
             cursor_pos: 0,
         }
     }
+}
 
+impl Default for PastingState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PastingState {
     pub fn byte_count(&self) -> usize {
         self.text.len()
     }
@@ -67,6 +75,12 @@ impl RunningState {
             total: 0,
             cancel_token: CancellationToken::new(),
         }
+    }
+}
+
+impl Default for RunningState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -124,7 +138,6 @@ mod tests {
 use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
-    text::Span,
     widgets::{Block, Borders, Gauge, Paragraph, Wrap},
     Frame,
 };
