@@ -32,6 +32,7 @@ pub fn clear_cache(dir: &Path) -> io::Result<usize> {
 
 pub mod auth;
 pub mod cache;
+pub mod wav;
 
 #[cfg(test)]
 mod tests {
