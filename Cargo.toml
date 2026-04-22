@@ -26,7 +26,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 async-trait = "0.1"
 tokio-util = "0.7"
 futures = "0.3"
-ratatui = { version = "0.28", default-features = false, features = ["crossterm"] }
+ratatui = { version = "0.29", default-features = false, features = ["crossterm"] }
 crossterm = { version = "0.28", features = ["event-stream"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
@@ -44,6 +44,7 @@ hound = "3"
 # TTS live (Plan 6c): WS streaming + local audio playback
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 rodio = { version = "0.19", default-features = false }
+tui-textarea = { version = "0.7.0", features = ["crossterm"] }
 
 [dev-dependencies]
 tempfile = "3"

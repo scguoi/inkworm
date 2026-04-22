@@ -222,7 +222,7 @@ impl App {
             Event::Paste(text) => {
                 if let Screen::Generate = self.screen {
                     if let Some(GenerateSubstate::Pasting(ref mut p)) = self.generate {
-                        p.text.push_str(&text);
+                        p.textarea.insert_str(&text);
                     }
                 }
             }
@@ -427,7 +427,7 @@ impl App {
                             if can_submit {
                                 let text =
                                     if let Some(GenerateSubstate::Pasting(p)) = &self.generate {
-                                        p.text.clone()
+                                        p.get_text()
                                     } else {
                                         return;
                                     };
@@ -435,42 +435,17 @@ impl App {
                             }
                             return;
                         }
-                        _ => {
-                            return;
-                        }
+                        _ => {}
                     }
                 }
-                match key.code {
-                    KeyCode::Esc => {
-                        self.generate = None;
-                        self.screen = Screen::Study;
-                    }
-                    KeyCode::Up => {
-                        if let Some(GenerateSubstate::Pasting(ref mut p)) = self.generate {
-                            p.scroll_up();
-                        }
-                    }
-                    KeyCode::Down => {
-                        if let Some(GenerateSubstate::Pasting(ref mut p)) = self.generate {
-                            p.scroll_down();
-                        }
-                    }
-                    KeyCode::Char(c) => {
-                        if let Some(GenerateSubstate::Pasting(ref mut p)) = self.generate {
-                            p.type_char(c);
-                        }
-                    }
-                    KeyCode::Backspace => {
-                        if let Some(GenerateSubstate::Pasting(ref mut p)) = self.generate {
-                            p.backspace();
-                        }
-                    }
-                    KeyCode::Enter => {
-                        if let Some(GenerateSubstate::Pasting(ref mut p)) = self.generate {
-                            p.type_char('\n');
-                        }
-                    }
-                    _ => {}
+                if key.code == KeyCode::Esc {
+                    self.generate = None;
+                    self.screen = Screen::Study;
+                    return;
+                }
+                // Delegate all other keys to tui-textarea
+                if let Some(GenerateSubstate::Pasting(ref mut p)) = self.generate {
+                    p.textarea.input(key);
                 }
             }
             GenerateSubstate::Running(_) => {
@@ -494,7 +469,7 @@ impl App {
                             self.screen = Screen::Study;
                         } else {
                             let mut pasting = PastingState::new();
-                            pasting.text = article_text;
+                            pasting.textarea.insert_str(&article_text);
                             self.generate = Some(GenerateSubstate::Pasting(pasting));
                         }
                     }

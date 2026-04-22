@@ -1,4 +1,5 @@
 use tokio_util::sync::CancellationToken;
+use tui_textarea::TextArea;
 
 use crate::ui::error_banner::UserMessage;
 
@@ -9,11 +10,16 @@ pub enum GenerateSubstate {
     Result(ResultState),
 }
 
-#[derive(Debug)]
 pub struct PastingState {
-    pub text: String,
-    pub cursor_pos: usize,
-    pub scroll_offset: usize,
+    pub textarea: TextArea<'static>,
+}
+
+impl std::fmt::Debug for PastingState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PastingState")
+            .field("textarea", &"<TextArea>")
+            .finish()
+    }
 }
 
 #[derive(Debug)]
@@ -33,47 +39,41 @@ pub struct ResultState {
 
 impl PastingState {
     pub fn new() -> Self {
-        Self {
-            text: String::new(),
-            cursor_pos: 0,
-            scroll_offset: 0,
-        }
+        let mut textarea = TextArea::default();
+        textarea.set_block(
+            ratatui::widgets::Block::default()
+                .borders(ratatui::widgets::Borders::ALL)
+                .title("Paste Article (Ctrl+Enter to submit)"),
+        );
+        Self { textarea }
     }
 
-    pub fn scroll_up(&mut self) {
-        self.scroll_offset = self.scroll_offset.saturating_sub(1);
+    pub fn byte_count(&self) -> usize {
+        self.textarea.lines().iter().map(|s| s.len()).sum::<usize>()
+            + self.textarea.lines().len().saturating_sub(1)
     }
 
-    pub fn scroll_down(&mut self) {
-        self.scroll_offset += 1;
+    pub fn word_count(&self) -> usize {
+        self.textarea
+            .lines()
+            .iter()
+            .flat_map(|line| line.split_whitespace())
+            .count()
+    }
+
+    pub fn can_submit(&self, max_bytes: usize) -> bool {
+        let text = self.textarea.lines().join("\n");
+        !text.trim().is_empty() && self.byte_count() <= max_bytes
+    }
+
+    pub fn get_text(&self) -> String {
+        self.textarea.lines().join("\n")
     }
 }
 
 impl Default for PastingState {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl PastingState {
-    pub fn byte_count(&self) -> usize {
-        self.text.len()
-    }
-
-    pub fn word_count(&self) -> usize {
-        self.text.split_whitespace().count()
-    }
-
-    pub fn can_submit(&self, max_bytes: usize) -> bool {
-        !self.text.trim().is_empty() && self.text.len() <= max_bytes
-    }
-
-    pub fn type_char(&mut self, c: char) {
-        self.text.push(c);
-    }
-
-    pub fn backspace(&mut self) {
-        self.text.pop();
     }
 }
 
@@ -119,7 +119,7 @@ mod tests {
     #[test]
     fn pasting_byte_and_word_count() {
         let mut state = PastingState::new();
-        state.text = "hello world".to_string();
+        state.textarea.insert_str("hello world");
         assert_eq!(state.byte_count(), 11);
         assert_eq!(state.word_count(), 2);
     }
@@ -128,27 +128,18 @@ mod tests {
     fn can_submit_requires_non_empty_and_under_limit() {
         let mut state = PastingState::new();
         assert!(!state.can_submit(100));
-        state.text = "test".to_string();
+        state.textarea.insert_str("test");
         assert!(state.can_submit(100));
-        state.text = "a".repeat(101);
-        assert!(!state.can_submit(100));
-    }
-
-    #[test]
-    fn type_and_backspace() {
-        let mut state = PastingState::new();
-        state.type_char('a');
-        state.type_char('b');
-        assert_eq!(state.text, "ab");
-        state.backspace();
-        assert_eq!(state.text, "a");
+        let mut state2 = PastingState::new();
+        state2.textarea.insert_str(&"a".repeat(101));
+        assert!(!state2.can_submit(100));
     }
 }
 
 use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Gauge, Paragraph, Wrap},
+    widgets::{Gauge, Paragraph},
     Frame,
 };
 
@@ -173,29 +164,7 @@ fn render_pasting(frame: &mut Frame, area: Rect, state: &PastingState, max_bytes
     let text_area = Rect::new(0, 0, area.width, text_height);
     let status_y = text_height;
 
-    // Use Paragraph with native scroll support
-    let para = Paragraph::new(state.text.as_str())
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("Paste Article (Ctrl+Enter to submit)"),
-        )
-        .wrap(Wrap { trim: false })
-        .scroll((state.scroll_offset as u16, 0));
-    frame.render_widget(para, text_area);
-
-    // Show cursor at end of text
-    let lines: Vec<&str> = state.text.lines().collect();
-    let last_line = lines.last().map(|s| s.len()).unwrap_or(0);
-    let cursor_line = lines.len().saturating_sub(1).saturating_sub(state.scroll_offset);
-
-    // Only show cursor if it's in visible area
-    let visible_height = text_area.height.saturating_sub(2); // Subtract borders
-    if cursor_line < visible_height as usize {
-        let cursor_x = text_area.x + 1 + (last_line as u16).min(text_area.width.saturating_sub(3));
-        let cursor_y = text_area.y + 1 + cursor_line as u16;
-        frame.set_cursor_position((cursor_x, cursor_y));
-    }
+    frame.render_widget(&state.textarea, text_area);
 
     let byte_count = state.byte_count();
     let word_count = state.word_count();
@@ -219,8 +188,7 @@ fn render_pasting(frame: &mut Frame, area: Rect, state: &PastingState, max_bytes
     let status = Paragraph::new(status_text).style(Style::default().fg(status_color));
     frame.render_widget(status, Rect::new(0, status_y, area.width, 1));
 
-    // Add hint at bottom
-    let hint = "↑↓ scroll · Ctrl+Enter submit · Esc cancel";
+    let hint = "Ctrl+Enter submit · Esc cancel";
     let hint_para = Paragraph::new(hint)
         .style(Style::default().fg(Color::DarkGray))
         .centered();
