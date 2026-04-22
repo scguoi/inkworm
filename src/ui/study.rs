@@ -259,8 +259,9 @@ pub fn render_study(frame: &mut Frame, state: &StudyState, cursor_visible: bool)
         None => return,
     };
 
-    // Three lines, vertically centered
-    let block_height = 3u16;
+    // Calculate block height: 3 lines normally, 4 lines when wrong
+    let is_wrong = matches!(state.feedback(), FeedbackState::Wrong { .. });
+    let block_height = if is_wrong { 4u16 } else { 3u16 };
     let y_start = area.height.saturating_sub(block_height) / 2;
     let padding = 5u16.min(area.width / 10);
 
@@ -292,16 +293,25 @@ pub fn render_study(frame: &mut Frame, state: &StudyState, cursor_visible: bool)
     // Line 3: Input with skeleton
     let skel = skeleton(&drill.english);
     let input = state.input();
-    let input_line = build_input_line(input, &skel, state.feedback(), &drill.english, cursor_visible);
+    let input_line = build_input_line(input, &skel, state.feedback(), cursor_visible);
     let input_para = Paragraph::new(input_line);
     frame.render_widget(input_para, Rect::new(padding, y_start + 2, content_width, 1));
+
+    // Line 4 (only when wrong): Reference answer
+    if is_wrong {
+        let reference_line = Line::from(vec![
+            Span::styled("  ", Style::default()),
+            Span::styled(&drill.english, Style::default().fg(Color::DarkGray)),
+        ]);
+        let reference_para = Paragraph::new(reference_line);
+        frame.render_widget(reference_para, Rect::new(padding, y_start + 3, content_width, 1));
+    }
 }
 
 fn build_input_line<'a>(
     input: &str,
     skel: &str,
     feedback: &FeedbackState,
-    reference: &str,
     cursor_visible: bool,
 ) -> Line<'a> {
     let mut spans = vec![Span::styled("> ", Style::default().fg(Color::DarkGray))];
@@ -331,11 +341,6 @@ fn build_input_line<'a>(
                     spans.push(Span::styled(after, Style::default().fg(Color::White)));
                 }
             }
-            // Append reference in dim
-            spans.push(Span::styled(
-                format!("  {reference}"),
-                Style::default().fg(Color::DarkGray),
-            ));
         }
         FeedbackState::Typing => {
             // Typed chars in white
