@@ -12,6 +12,7 @@ use crate::storage::course::Course;
 use crate::storage::progress::Progress;
 use crate::storage::DataPaths;
 use crate::tts::speaker::Speaker;
+use crate::tts::OutputKind;
 use crate::ui::error_banner::user_message;
 use crate::ui::generate::{GenerateSubstate, PastingState, ResultState, RunningState};
 use crate::ui::palette::{Command, PaletteState};
@@ -44,6 +45,8 @@ pub struct App {
     pub config_wizard: Option<crate::ui::config_wizard::WizardState>,
     pub course_list: Option<crate::ui::course_list::CourseListState>,
     pub speaker: Arc<dyn Speaker>,
+    pub current_device: OutputKind,
+    device_probe_counter: u32,
 }
 
 impl App {
@@ -72,6 +75,8 @@ impl App {
             config_wizard: None,
             course_list: None,
             speaker,
+            current_device: OutputKind::Unknown,
+            device_probe_counter: 0,
         }
     }
 
@@ -136,6 +141,16 @@ impl App {
             self.blink_counter = 0;
             self.cursor_visible = !self.cursor_visible;
         }
+        // Device probe every ~62 ticks ≈ 1 second (tick cadence = 16ms).
+        self.device_probe_counter = self.device_probe_counter.saturating_add(1);
+        if self.device_probe_counter >= 62 {
+            self.device_probe_counter = 0;
+            let task_tx = self.task_tx.clone();
+            tokio::task::spawn_blocking(move || {
+                let kind = crate::tts::device::detect_output_kind().unwrap_or(OutputKind::Unknown);
+                let _ = task_tx.blocking_send(TaskMsg::DeviceDetected(kind));
+            });
+        }
     }
 
     pub fn on_input(&mut self, event: Event) {
@@ -164,6 +179,9 @@ impl App {
         match msg {
             TaskMsg::Generate(progress) => self.handle_generate_progress(progress),
             TaskMsg::Wizard(m) => self.handle_wizard_task_msg(m),
+            TaskMsg::DeviceDetected(kind) => {
+                self.current_device = kind;
+            }
         }
     }
 
