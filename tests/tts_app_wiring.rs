@@ -65,12 +65,19 @@ fn make_app(paths: DataPaths, speaker: Arc<dyn Speaker>, course: Option<Course>)
     if let Some(c) = &course {
         progress.active_course_id = Some(c.id.clone());
     }
+    // Force TTS on + fill creds so speak_current_drill's should_speak gate
+    // passes regardless of the probed audio device.
+    let mut config = Config::default();
+    config.tts.r#override = inkworm::config::TtsOverride::On;
+    config.tts.iflytek.app_id = "test-app".into();
+    config.tts.iflytek.api_key = "test-key".into();
+    config.tts.iflytek.api_secret = "test-secret".into();
     App::new(
         course,
         progress,
         paths,
         Arc::new(SystemClock),
-        Config::default(),
+        config,
         task_tx,
         speaker,
     )
