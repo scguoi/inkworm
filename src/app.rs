@@ -12,7 +12,7 @@ use crate::storage::course::Course;
 use crate::storage::progress::Progress;
 use crate::storage::DataPaths;
 use crate::tts::speaker::Speaker;
-use crate::tts::OutputKind;
+use crate::tts::{should_speak, OutputKind};
 use crate::ui::error_banner::user_message;
 use crate::ui::generate::{GenerateSubstate, PastingState, ResultState, RunningState};
 use crate::ui::palette::{Command, PaletteState};
@@ -87,6 +87,13 @@ impl App {
         self.screen = Screen::ConfigWizard;
     }
 
+    fn tts_has_creds(&self) -> bool {
+        let cfg = &self.config.tts.iflytek;
+        !cfg.app_id.trim().is_empty()
+            && !cfg.api_key.trim().is_empty()
+            && !cfg.api_secret.trim().is_empty()
+    }
+
     /// Cancel any in-flight speak, then if there is a current drill,
     /// spawn a new speak for its English text. Safe to call on any state
     /// transition — no-ops cleanly when no drill is active.
@@ -95,6 +102,13 @@ impl App {
         let Some(drill) = self.study.current_drill() else {
             return;
         };
+        if !should_speak(
+            self.config.tts.r#override,
+            self.current_device,
+            self.tts_has_creds(),
+        ) {
+            return;
+        }
         let text = drill.english.clone();
         let speaker = Arc::clone(&self.speaker);
         tokio::spawn(async move {
