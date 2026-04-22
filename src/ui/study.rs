@@ -191,6 +191,17 @@ impl StudyState {
         self.feedback = FeedbackState::Typing;
     }
 
+    pub fn delete_to_line_start(&mut self) {
+        if self.phase != StudyPhase::Active {
+            return;
+        }
+        if self.feedback == FeedbackState::Correct {
+            return;
+        }
+        self.input.clear();
+        self.feedback = FeedbackState::Typing;
+    }
+
     pub fn skip(&mut self) {
         if self.phase != StudyPhase::Active {
             return;

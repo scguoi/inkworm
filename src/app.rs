@@ -325,6 +325,12 @@ impl App {
             return;
         }
 
+        // Command+Backspace: delete to beginning of line
+        if key.modifiers.contains(KeyModifiers::SUPER) && key.code == KeyCode::Backspace {
+            self.study.delete_to_line_start();
+            return;
+        }
+
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             match key.code {
                 KeyCode::Char('p') => {
