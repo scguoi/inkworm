@@ -25,7 +25,6 @@ Rules:
 - `stage` is 1-indexed and strictly increasing.
 - `chinese` is 1-200 chars. `english` is 1-50 words.
 - `soundmark` REQUIREMENTS:
-  * For focus="keywords", "skeleton", "clause": MUST provide IPA wrapped in /slashes/ per word. Example: "/ækt/ /təˈwɔːrd/"
-  * For focus="full": empty string is allowed (but IPA is preferred)
-  * NEVER leave soundmark empty for non-full stages
+  * ALL stages (including "full") MUST provide IPA wrapped in /slashes/ per word. Example: "/ækt/ /təˈwɔːrd/"
+  * NEVER leave soundmark empty for any stage
 - Return JSON only.

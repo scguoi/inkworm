@@ -195,8 +195,8 @@ impl Course {
                         value: d.soundmark.clone(),
                     });
                 }
-                // Non-full stages must have soundmark
-                if d.focus != Focus::Full && d.soundmark.is_empty() {
+                // All stages must have soundmark
+                if d.soundmark.is_empty() {
                     errs.push(ValidationError::SoundmarkMissing {
                         sentence: i,
                         drill: j,

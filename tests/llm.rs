@@ -562,7 +562,7 @@ mod reflexion_e2e {
               "drills": [
                 {{"stage": 1, "focus": "keywords", "chinese": "关键", "english": "a b", "soundmark": "/eɪ/ /biː/"}},
                 {{"stage": 2, "focus": "skeleton", "chinese": "骨架", "english": "a b c", "soundmark": "/eɪ/ /biː/ /siː/"}},
-                {{"stage": 3, "focus": "full", "chinese": "完整", "english": "{english}", "soundmark": ""}}
+                {{"stage": 3, "focus": "full", "chinese": "完整", "english": "{english}", "soundmark": "/eɪ/ /biː/ /siː/"}}
               ]
             }}"#
         )
