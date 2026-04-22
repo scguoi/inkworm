@@ -588,6 +588,7 @@ impl App {
                     self.screen = Screen::DeleteConfirm;
                 }
             }
+            "logs" => self.execute_logs(),
             _ => {}
         }
     }
@@ -614,6 +615,25 @@ impl App {
         if let Err(e) = self.config.write_atomic(&self.data_paths.config_file) {
             eprintln!("Failed to save TTS override: {e}");
         }
+    }
+
+    fn execute_logs(&mut self) {
+        let log_path = self.data_paths.root.join("inkworm.log");
+        let path_str = log_path.display().to_string();
+
+        let _ = std::process::Command::new("pbcopy")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                use std::io::Write;
+                if let Some(mut stdin) = child.stdin.take() {
+                    stdin.write_all(path_str.as_bytes())?;
+                }
+                child.wait()
+            });
+
+        eprintln!("Log path copied to clipboard: {}", path_str);
+        self.screen = Screen::Study;
     }
 
     fn quit(&mut self) {
