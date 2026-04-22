@@ -404,6 +404,7 @@ impl App {
     }
 
     fn handle_generate_key(&mut self, key: KeyEvent) {
+        tracing::debug!("handle_generate_key: {:?}", key);
         let Some(ref gen_state) = self.generate else {
             return;
         };
@@ -451,8 +452,7 @@ impl App {
                     }
                     KeyCode::Down => {
                         if let Some(GenerateSubstate::Pasting(ref mut p)) = self.generate {
-                            let area_height = 20; // approximate visible lines
-                            p.scroll_down(area_height);
+                            p.scroll_down();
                         }
                     }
                     KeyCode::Char(c) => {
