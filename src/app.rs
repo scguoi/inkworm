@@ -761,7 +761,7 @@ impl App {
             Screen::TtsStatus => {
                 crate::ui::study::render_study(frame, &self.study, self.cursor_visible);
                 let cache_stats = crate::tts::cache::cache_stats(&self.data_paths.tts_cache_dir);
-                let last_error = self.last_tts_error.blocking_lock().clone();
+                let last_error = self.last_tts_error.try_lock().ok().and_then(|guard| guard.clone());
                 crate::ui::tts_status::render_tts_status(
                     frame,
                     &self.config.tts,
