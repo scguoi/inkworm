@@ -181,7 +181,7 @@ pub fn render_palette(frame: &mut Frame, state: &PaletteState) {
         .min(area.height.saturating_sub(3));
     let total_height = list_height + 1;
     let y = area.height.saturating_sub(total_height);
-    let width = 40u16.min(area.width);
+    let width = 60u16.min(area.width);
     let x = (area.width.saturating_sub(width)) / 2;
 
     let palette_rect = Rect::new(x, y, width, total_height);
@@ -265,9 +265,16 @@ pub fn render_help(frame: &mut Frame) {
     )));
 
     let height = lines.len() as u16;
-    let y = area.height.saturating_sub(height) / 2;
+    let width = 60u16.min(area.width);
+    let y = (area.height.saturating_sub(height)) / 2;
+    let x = (area.width.saturating_sub(width)) / 2;
+    let help_rect = Rect::new(x, y, width, height);
+
+    // Clear background first
+    frame.render_widget(Clear, help_rect);
+
     let para = Paragraph::new(lines).centered();
-    frame.render_widget(para, Rect::new(0, y, area.width, height));
+    frame.render_widget(para, help_rect);
 }
 
 #[cfg(test)]
