@@ -70,7 +70,30 @@ impl<'a> Reflexion<'a> {
             if self.cancel.is_cancelled() {
                 return Err(ReflexionError::Cancelled);
             }
-            let raw = self.client.chat(req.clone(), self.cancel.clone()).await?;
+            let start = std::time::Instant::now();
+            let result = self.client.chat(req.clone(), self.cancel.clone()).await;
+            let duration_ms = start.elapsed().as_millis();
+            match &result {
+                Ok(ref _content) => {
+                    tracing::info!(
+                        model = %self.model,
+                        attempt = attempt,
+                        duration_ms = duration_ms,
+                        result = "ok",
+                        "LLM call succeeded"
+                    );
+                }
+                Err(ref e) => {
+                    tracing::error!(
+                        model = %self.model,
+                        attempt = attempt,
+                        duration_ms = duration_ms,
+                        error = %e,
+                        "LLM call failed"
+                    );
+                }
+            }
+            let raw = result?;
             match try_parse_and_validate_phase1(&raw) {
                 Ok(rs) => return Ok(rs),
                 Err(errors) => {
@@ -152,7 +175,30 @@ impl<'a> Reflexion<'a> {
             if self.cancel.is_cancelled() {
                 return Err(ReflexionError::Cancelled);
             }
-            let raw = self.client.chat(req.clone(), self.cancel.clone()).await?;
+            let start = std::time::Instant::now();
+            let result = self.client.chat(req.clone(), self.cancel.clone()).await;
+            let duration_ms = start.elapsed().as_millis();
+            match &result {
+                Ok(ref _content) => {
+                    tracing::info!(
+                        model = %self.model,
+                        attempt = attempt,
+                        duration_ms = duration_ms,
+                        result = "ok",
+                        "LLM call succeeded"
+                    );
+                }
+                Err(ref e) => {
+                    tracing::error!(
+                        model = %self.model,
+                        attempt = attempt,
+                        duration_ms = duration_ms,
+                        error = %e,
+                        "LLM call failed"
+                    );
+                }
+            }
+            let raw = result?;
             match try_parse_and_validate_phase2(&raw, &sentence.english) {
                 Ok(rd) => return Ok(rd),
                 Err(errors) => {
