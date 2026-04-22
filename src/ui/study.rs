@@ -259,9 +259,9 @@ pub fn render_study(frame: &mut Frame, state: &StudyState, cursor_visible: bool)
         None => return,
     };
 
-    // Calculate block height: 3 lines normally, 4 lines when wrong
+    // Always reserve 4 lines to prevent layout shift when showing reference answer
+    let block_height = 4u16;
     let is_wrong = matches!(state.feedback(), FeedbackState::Wrong { .. });
-    let block_height = if is_wrong { 4u16 } else { 3u16 };
     let y_start = area.height.saturating_sub(block_height) / 2;
     let padding = 5u16.min(area.width / 10);
 
