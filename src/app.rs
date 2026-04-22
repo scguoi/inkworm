@@ -11,6 +11,7 @@ use crate::config::Config;
 use crate::storage::course::Course;
 use crate::storage::progress::Progress;
 use crate::storage::DataPaths;
+use crate::tts::speaker::Speaker;
 use crate::ui::error_banner::user_message;
 use crate::ui::generate::{GenerateSubstate, PastingState, ResultState, RunningState};
 use crate::ui::palette::{Command, PaletteState};
@@ -42,6 +43,7 @@ pub struct App {
     pub delete_confirming: Option<String>,
     pub config_wizard: Option<crate::ui::config_wizard::WizardState>,
     pub course_list: Option<crate::ui::course_list::CourseListState>,
+    pub speaker: Arc<dyn Speaker>,
 }
 
 impl App {
@@ -52,6 +54,7 @@ impl App {
         clock: Arc<dyn Clock>,
         config: Config,
         task_tx: mpsc::Sender<TaskMsg>,
+        speaker: Arc<dyn Speaker>,
     ) -> Self {
         Self {
             screen: Screen::Study,
@@ -68,6 +71,7 @@ impl App {
             delete_confirming: None,
             config_wizard: None,
             course_list: None,
+            speaker,
         }
     }
 
@@ -76,6 +80,21 @@ impl App {
         let state = WizardState::new(origin, self.config.clone());
         self.config_wizard = Some(state);
         self.screen = Screen::ConfigWizard;
+    }
+
+    /// Cancel any in-flight speak, then if there is a current drill,
+    /// spawn a new speak for its English text. Safe to call on any state
+    /// transition — no-ops cleanly when no drill is active.
+    pub fn speak_current_drill(&self) {
+        self.speaker.cancel();
+        let Some(drill) = self.study.current_drill() else {
+            return;
+        };
+        let text = drill.english.clone();
+        let speaker = Arc::clone(&self.speaker);
+        tokio::spawn(async move {
+            let _ = speaker.speak(&text).await;
+        });
     }
 
     pub fn open_course_list(&mut self) {
@@ -108,6 +127,7 @@ impl App {
         self.study = crate::ui::study::StudyState::new(Some(course), progress);
         self.course_list = None;
         self.screen = Screen::Study;
+        self.speak_current_drill();
     }
 
     pub fn on_tick(&mut self) {
@@ -184,6 +204,7 @@ impl App {
                 self.study = StudyState::new(Some(course), self.study.progress().clone());
                 self.generate = None;
                 self.screen = Screen::Study;
+                self.speak_current_drill();
             }
             GenerateProgress::Failed(err) => {
                 let article_text = String::new();
@@ -210,6 +231,7 @@ impl App {
         match self.study.feedback() {
             FeedbackState::Correct => {
                 self.study.advance();
+                self.speak_current_drill();
             }
             FeedbackState::Wrong { .. } => match key.code {
                 KeyCode::Char(c) => self.study.type_char(c),
@@ -221,7 +243,10 @@ impl App {
                 KeyCode::Char(c) => self.study.type_char(c),
                 KeyCode::Backspace => self.study.backspace(),
                 KeyCode::Enter => self.study.submit(self.clock.as_ref()),
-                KeyCode::Tab => self.study.skip(),
+                KeyCode::Tab => {
+                    self.study.skip();
+                    self.speak_current_drill();
+                }
                 _ => {}
             },
         }
@@ -500,7 +525,10 @@ impl App {
     fn execute_command(&mut self, cmd: &Command, args: &[String]) {
         match cmd.name {
             "quit" | "q" => self.quit(),
-            "skip" => self.study.skip(),
+            "skip" => {
+                self.study.skip();
+                self.speak_current_drill();
+            }
             "help" => self.screen = Screen::Help,
             "import" => {
                 self.generate = Some(GenerateSubstate::Pasting(PastingState::new()));

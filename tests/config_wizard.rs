@@ -5,6 +5,7 @@ use inkworm::clock::SystemClock;
 use inkworm::config::{Config, IflytekConfig};
 use inkworm::storage::paths::DataPaths;
 use inkworm::storage::progress::Progress;
+use inkworm::tts::speaker::{NullSpeaker, Speaker};
 use inkworm::ui::config_wizard::{WizardOrigin, WizardStep};
 use inkworm::ui::task_msg::{TaskMsg, WizardTaskMsg};
 use tempfile::TempDir;
@@ -24,7 +25,16 @@ fn make_app(
     cfg: Config,
 ) -> (App, tokio::sync::mpsc::Receiver<TaskMsg>) {
     let (tx, rx) = tokio::sync::mpsc::channel(32);
-    let app = App::new(None, progress, paths, Arc::new(SystemClock), cfg, tx);
+    let speaker: Arc<dyn Speaker> = Arc::new(NullSpeaker);
+    let app = App::new(
+        None,
+        progress,
+        paths,
+        Arc::new(SystemClock),
+        cfg,
+        tx,
+        speaker,
+    );
     (app, rx)
 }
 

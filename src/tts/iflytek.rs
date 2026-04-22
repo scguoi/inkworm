@@ -30,6 +30,9 @@ pub struct IflytekSpeaker {
     audio: Option<rodio::OutputStreamHandle>,
     /// Overridden by `with_base_url` in tests.
     base_url: String,
+    /// Stores the most recent rodio Sink so `cancel()` can stop mid-playback.
+    /// `None` when no audio has been queued yet or when `audio` is `None`.
+    current_sink: Arc<Mutex<Option<rodio::Sink>>>,
 }
 
 impl IflytekSpeaker {
@@ -44,6 +47,7 @@ impl IflytekSpeaker {
             stream_handle: Arc::new(Mutex::new(None)),
             audio,
             base_url: DEFAULT_BASE_URL.to_string(),
+            current_sink: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -60,6 +64,7 @@ impl IflytekSpeaker {
             stream_handle: Arc::new(Mutex::new(None)),
             audio,
             base_url,
+            current_sink: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -80,10 +85,14 @@ impl IflytekSpeaker {
             wav::SAMPLE_RATE,
             samples,
         ));
-        // Detach: rodio keeps the audio queued in a background thread even
-        // after we drop the Sink handle. We trade loss of mid-playback cancel
-        // (Plan 6d will add a persisted Sink field) for a simpler v1.
-        std::mem::forget(sink);
+        // Store the sink so `cancel()` can stop playback mid-audio. The
+        // previous sink (if any) is dropped here — `rodio::Sink` Drop does
+        // NOT stop playback, it just lets the audio finish naturally. For
+        // v1 that's fine: the old audio was from a prior drill that either
+        // finished already or was explicitly stopped via `cancel`.
+        if let Ok(mut guard) = self.current_sink.lock() {
+            *guard = Some(sink);
+        }
         Ok(())
     }
 
@@ -189,9 +198,16 @@ impl Speaker for IflytekSpeaker {
     }
 
     fn cancel(&self) {
+        // Cancel any in-flight WS stream.
         if let Ok(mut guard) = self.stream_handle.lock() {
             if let Some(token) = guard.take() {
                 token.cancel();
+            }
+        }
+        // Stop any currently-playing audio.
+        if let Ok(mut guard) = self.current_sink.lock() {
+            if let Some(sink) = guard.take() {
+                sink.stop();
             }
         }
     }

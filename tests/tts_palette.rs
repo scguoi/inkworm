@@ -8,6 +8,7 @@ use inkworm::clock::SystemClock;
 use inkworm::config::{Config, TtsOverride};
 use inkworm::storage::paths::DataPaths;
 use inkworm::storage::progress::Progress;
+use inkworm::tts::speaker::{NullSpeaker, Speaker};
 use tokio::sync::mpsc;
 
 fn key(code: KeyCode) -> Event {
@@ -30,6 +31,7 @@ fn ctrl(c: char) -> Event {
 
 fn make_app(paths: DataPaths) -> App {
     let (task_tx, _task_rx) = mpsc::channel(16);
+    let speaker: Arc<dyn Speaker> = Arc::new(NullSpeaker);
     App::new(
         None,
         Progress::empty(),
@@ -37,6 +39,7 @@ fn make_app(paths: DataPaths) -> App {
         Arc::new(SystemClock),
         Config::default(),
         task_tx,
+        speaker,
     )
 }
 
