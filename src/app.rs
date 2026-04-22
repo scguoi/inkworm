@@ -704,6 +704,9 @@ impl App {
                         self.spawn_connectivity_test();
                     }
                     CommitOutcome::Advance | CommitOutcome::Invalid => {}
+                    CommitOutcome::ProbeTts | CommitOutcome::SaveConfig => {
+                        // TODO(plan-6f-task3): handle TTS probe and save
+                    }
                 }
             }
             KeyCode::Backspace => {

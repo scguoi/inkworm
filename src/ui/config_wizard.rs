@@ -1,4 +1,4 @@
-//! Config wizard: 3-step first-run / `/config` flow for LLM endpoint / api_key / model.
+//! Config wizard: multi-step first-run / `/config` flow for LLM and TTS setup.
 //! Connectivity probe and rendering live in this file (probe in §Probe block, render in §Render block).
 
 use std::time::Duration;
@@ -21,6 +21,10 @@ pub enum WizardStep {
     Endpoint,
     ApiKey,
     Model,
+    TtsEnable,
+    TtsAppId,
+    TtsApiKey,
+    TtsApiSecret,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +46,7 @@ pub struct WizardState {
     pub input: String,
     pub testing: Option<TestingState>,
     pub error: Option<UserMessage>,
+    pub tts_enabled: bool,
 }
 
 /// Outcome of `WizardState::commit` — tells App what to do next.
@@ -51,6 +56,10 @@ pub enum CommitOutcome {
     Advance,
     /// On Model step — spawn connectivity test.
     ProbeConnectivity,
+    /// On TtsApiSecret step — spawn TTS connectivity test.
+    ProbeTts,
+    /// Save config without TTS probe (user declined TTS).
+    SaveConfig,
     /// Input was invalid (e.g., empty). `error` is now set; stay on same step.
     Invalid,
 }
@@ -69,6 +78,7 @@ pub enum BackOutcome {
 impl WizardState {
     pub fn new(origin: WizardOrigin, draft: Config) -> Self {
         let input = draft.llm.base_url.clone();
+        let tts_enabled = draft.tts.enabled;
         Self {
             step: WizardStep::Endpoint,
             origin,
@@ -76,6 +86,27 @@ impl WizardState {
             input,
             testing: None,
             error: None,
+            tts_enabled,
+        }
+    }
+
+    pub fn total_steps(&self) -> u8 {
+        if self.tts_enabled {
+            7
+        } else {
+            4
+        }
+    }
+
+    pub fn step_number(&self) -> u8 {
+        match self.step {
+            WizardStep::Endpoint => 1,
+            WizardStep::ApiKey => 2,
+            WizardStep::Model => 3,
+            WizardStep::TtsEnable => 4,
+            WizardStep::TtsAppId => 5,
+            WizardStep::TtsApiKey => 6,
+            WizardStep::TtsApiSecret => 7,
         }
     }
 
@@ -93,11 +124,15 @@ impl WizardState {
     pub fn commit(&mut self) -> CommitOutcome {
         self.error = None;
         let trimmed = self.input.trim();
-        if trimmed.is_empty() {
+        if trimmed.is_empty() && self.step != WizardStep::TtsEnable {
             let label = match self.step {
                 WizardStep::Endpoint => "Endpoint cannot be empty",
                 WizardStep::ApiKey => "API key cannot be empty",
                 WizardStep::Model => "Model cannot be empty",
+                WizardStep::TtsAppId => "App ID cannot be empty",
+                WizardStep::TtsApiKey => "API key cannot be empty",
+                WizardStep::TtsApiSecret => "API secret cannot be empty",
+                WizardStep::TtsEnable => unreachable!(),
             };
             self.error = Some(UserMessage {
                 headline: label.to_string(),
@@ -123,6 +158,43 @@ impl WizardState {
                 self.draft.llm.model = trimmed.to_string();
                 CommitOutcome::ProbeConnectivity
             }
+            WizardStep::TtsEnable => {
+                let lower = trimmed.to_lowercase();
+                if lower == "y" {
+                    self.tts_enabled = true;
+                    self.draft.tts.enabled = true;
+                    self.step = WizardStep::TtsAppId;
+                    self.input = self.draft.tts.iflytek.app_id.clone();
+                    CommitOutcome::Advance
+                } else if lower == "n" {
+                    self.tts_enabled = false;
+                    self.draft.tts.enabled = false;
+                    CommitOutcome::SaveConfig
+                } else {
+                    self.error = Some(UserMessage {
+                        headline: "Type y or n".to_string(),
+                        hint: String::new(),
+                        severity: crate::ui::error_banner::Severity::Error,
+                    });
+                    CommitOutcome::Invalid
+                }
+            }
+            WizardStep::TtsAppId => {
+                self.draft.tts.iflytek.app_id = trimmed.to_string();
+                self.step = WizardStep::TtsApiKey;
+                self.input = self.draft.tts.iflytek.api_key.clone();
+                CommitOutcome::Advance
+            }
+            WizardStep::TtsApiKey => {
+                self.draft.tts.iflytek.api_key = trimmed.to_string();
+                self.step = WizardStep::TtsApiSecret;
+                self.input = self.draft.tts.iflytek.api_secret.clone();
+                CommitOutcome::Advance
+            }
+            WizardStep::TtsApiSecret => {
+                self.draft.tts.iflytek.api_secret = trimmed.to_string();
+                CommitOutcome::ProbeTts
+            }
         }
     }
 
@@ -142,6 +214,26 @@ impl WizardState {
             WizardStep::Model => {
                 self.step = WizardStep::ApiKey;
                 self.input = self.draft.llm.api_key.clone();
+                BackOutcome::Back
+            }
+            WizardStep::TtsEnable => {
+                self.step = WizardStep::Model;
+                self.input = self.draft.llm.model.clone();
+                BackOutcome::Back
+            }
+            WizardStep::TtsAppId => {
+                self.step = WizardStep::TtsEnable;
+                self.input = if self.tts_enabled { "y" } else { "n" }.to_string();
+                BackOutcome::Back
+            }
+            WizardStep::TtsApiKey => {
+                self.step = WizardStep::TtsAppId;
+                self.input = self.draft.tts.iflytek.app_id.clone();
+                BackOutcome::Back
+            }
+            WizardStep::TtsApiSecret => {
+                self.step = WizardStep::TtsApiKey;
+                self.input = self.draft.tts.iflytek.api_key.clone();
                 BackOutcome::Back
             }
         }
@@ -177,13 +269,10 @@ pub async fn probe_llm(llm: LlmConfig, cancel: CancellationToken) -> Result<(), 
 }
 
 /// Title line for the wizard frame.
-pub fn wizard_title(step: WizardStep) -> String {
-    let n = match step {
-        WizardStep::Endpoint => 1,
-        WizardStep::ApiKey => 2,
-        WizardStep::Model => 3,
-    };
-    format!("inkworm — setup ({n} / 3)")
+pub fn wizard_title_dynamic(state: &WizardState) -> String {
+    let n = state.step_number();
+    let total = state.total_steps();
+    format!("inkworm — setup ({n} / {total})")
 }
 
 /// Step-specific label.
@@ -192,15 +281,20 @@ pub fn wizard_step_label(step: WizardStep) -> &'static str {
         WizardStep::Endpoint => "LLM endpoint",
         WizardStep::ApiKey => "LLM API key",
         WizardStep::Model => "LLM model",
+        WizardStep::TtsEnable => "Enable TTS? (y/n)",
+        WizardStep::TtsAppId => "iFlytek App ID",
+        WizardStep::TtsApiKey => "iFlytek API Key",
+        WizardStep::TtsApiSecret => "iFlytek API Secret",
     }
 }
 
-/// Display-ready input — masks the ApiKey step, passes through otherwise.
+/// Display-ready input — masks the ApiKey, TtsApiKey, and TtsApiSecret steps.
 pub fn mask_for_display(input: &str, step: WizardStep) -> String {
-    if step == WizardStep::ApiKey {
-        "*".repeat(input.chars().count())
-    } else {
-        input.to_string()
+    match step {
+        WizardStep::ApiKey | WizardStep::TtsApiKey | WizardStep::TtsApiSecret => {
+            "*".repeat(input.chars().count())
+        }
+        _ => input.to_string(),
     }
 }
 
@@ -214,13 +308,17 @@ pub fn wizard_hint(step: WizardStep, origin: WizardOrigin, testing: bool) -> &'s
         (WizardStep::Endpoint, WizardOrigin::Command) => "Enter · next     Esc · cancel",
         (WizardStep::ApiKey, _) => "Enter · next     Esc · back",
         (WizardStep::Model, _) => "Enter · test and save     Esc · back",
+        (WizardStep::TtsEnable, _) => "Enter · next     Esc · back",
+        (WizardStep::TtsAppId, _) => "Enter · next     Esc · back",
+        (WizardStep::TtsApiKey, _) => "Enter · next     Esc · back",
+        (WizardStep::TtsApiSecret, _) => "Enter · test and save     Esc · back",
     }
 }
 
 pub fn render_config_wizard(frame: &mut Frame, state: &WizardState, cursor_visible: bool) {
     let area = frame.area();
 
-    let title = wizard_title(state.step);
+    let title = wizard_title_dynamic(state);
     let label = wizard_step_label(state.step);
     let rendered_input = mask_for_display(&state.input, state.step);
     let cursor_glyph = if cursor_visible { "_" } else { " " };
@@ -242,7 +340,9 @@ pub fn render_config_wizard(frame: &mut Frame, state: &WizardState, cursor_visib
 
     let label_line = Paragraph::new(Span::styled(
         label,
-        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
     ));
     frame.render_widget(label_line, Rect::new(left, top + 2, width, 1));
 
@@ -407,7 +507,10 @@ mod tests {
         };
         let err = probe_llm(llm, CancellationToken::new()).await.unwrap_err();
         assert!(
-            matches!(err, AppError::Llm(crate::llm::error::LlmError::Unauthorized)),
+            matches!(
+                err,
+                AppError::Llm(crate::llm::error::LlmError::Unauthorized)
+            ),
             "{err:?}"
         );
     }
@@ -435,10 +538,137 @@ mod tests {
     }
 
     #[test]
-    fn title_shows_1_of_3_on_endpoint() {
-        assert_eq!(wizard_title(WizardStep::Endpoint), "inkworm — setup (1 / 3)");
-        assert_eq!(wizard_title(WizardStep::ApiKey), "inkworm — setup (2 / 3)");
-        assert_eq!(wizard_title(WizardStep::Model), "inkworm — setup (3 / 3)");
+    fn tts_enable_y_advances_to_tts_app_id() {
+        let mut w = new_wiz();
+        w.input = "https://x/v1".into();
+        w.commit();
+        w.input = "sk-123".into();
+        w.commit();
+        w.step = WizardStep::TtsEnable;
+        w.input = "y".into();
+        let outcome = w.commit();
+        assert!(matches!(outcome, CommitOutcome::Advance));
+        assert_eq!(w.step, WizardStep::TtsAppId);
+        assert!(w.tts_enabled);
+    }
+
+    #[test]
+    fn tts_enable_n_returns_save_config() {
+        let mut w = new_wiz();
+        w.step = WizardStep::TtsEnable;
+        w.input = "n".into();
+        let outcome = w.commit();
+        assert!(matches!(outcome, CommitOutcome::SaveConfig));
+        assert!(!w.tts_enabled);
+        assert!(!w.draft.tts.enabled);
+    }
+
+    #[test]
+    fn tts_enable_invalid_input_stays() {
+        let mut w = new_wiz();
+        w.step = WizardStep::TtsEnable;
+        w.input = "maybe".into();
+        let outcome = w.commit();
+        assert!(matches!(outcome, CommitOutcome::Invalid));
+        assert!(w.error.is_some());
+    }
+
+    #[test]
+    fn tts_credential_steps_advance() {
+        let mut w = new_wiz();
+        w.tts_enabled = true;
+        w.step = WizardStep::TtsAppId;
+        w.input = "app123".into();
+        let outcome = w.commit();
+        assert!(matches!(outcome, CommitOutcome::Advance));
+        assert_eq!(w.step, WizardStep::TtsApiKey);
+        assert_eq!(w.draft.tts.iflytek.app_id, "app123");
+
+        w.input = "key456".into();
+        let outcome = w.commit();
+        assert!(matches!(outcome, CommitOutcome::Advance));
+        assert_eq!(w.step, WizardStep::TtsApiSecret);
+        assert_eq!(w.draft.tts.iflytek.api_key, "key456");
+
+        w.input = "sec789".into();
+        let outcome = w.commit();
+        assert!(matches!(outcome, CommitOutcome::ProbeTts));
+        assert_eq!(w.draft.tts.iflytek.api_secret, "sec789");
+    }
+
+    #[test]
+    fn tts_back_navigation() {
+        let mut w = new_wiz();
+        w.tts_enabled = true;
+        w.step = WizardStep::TtsApiSecret;
+        w.draft.tts.iflytek.api_key = "k".into();
+        let outcome = w.back();
+        assert!(matches!(outcome, BackOutcome::Back));
+        assert_eq!(w.step, WizardStep::TtsApiKey);
+        assert_eq!(w.input, "k");
+
+        w.draft.tts.iflytek.app_id = "a".into();
+        let outcome = w.back();
+        assert!(matches!(outcome, BackOutcome::Back));
+        assert_eq!(w.step, WizardStep::TtsAppId);
+        assert_eq!(w.input, "a");
+
+        let outcome = w.back();
+        assert!(matches!(outcome, BackOutcome::Back));
+        assert_eq!(w.step, WizardStep::TtsEnable);
+    }
+
+    #[test]
+    fn total_steps_dynamic() {
+        let mut w = new_wiz();
+        w.step = WizardStep::TtsEnable;
+        w.tts_enabled = false;
+        assert_eq!(w.total_steps(), 4);
+        w.tts_enabled = true;
+        assert_eq!(w.total_steps(), 7);
+    }
+
+    #[test]
+    fn step_number_sequential() {
+        let mut w = new_wiz();
+        w.step = WizardStep::Endpoint;
+        assert_eq!(w.step_number(), 1);
+        w.step = WizardStep::TtsEnable;
+        assert_eq!(w.step_number(), 4);
+        w.step = WizardStep::TtsApiSecret;
+        assert_eq!(w.step_number(), 7);
+    }
+
+    #[test]
+    fn wizard_title_dynamic_test() {
+        let mut w = new_wiz();
+        w.step = WizardStep::TtsEnable;
+        w.tts_enabled = false;
+        assert_eq!(wizard_title_dynamic(&w), "inkworm — setup (4 / 4)");
+        w.tts_enabled = true;
+        assert_eq!(wizard_title_dynamic(&w), "inkworm — setup (4 / 7)");
+    }
+
+    #[test]
+    fn mask_hides_tts_secrets() {
+        assert_eq!(mask_for_display("secret", WizardStep::TtsApiKey), "******");
+        assert_eq!(
+            mask_for_display("secret", WizardStep::TtsApiSecret),
+            "******"
+        );
+        assert_eq!(mask_for_display("app123", WizardStep::TtsAppId), "app123");
+    }
+
+    #[test]
+    fn hint_tts_steps() {
+        assert_eq!(
+            wizard_hint(WizardStep::TtsEnable, WizardOrigin::FirstRun, false),
+            "Enter · next     Esc · back"
+        );
+        assert_eq!(
+            wizard_hint(WizardStep::TtsApiSecret, WizardOrigin::FirstRun, false),
+            "Enter · test and save     Esc · back"
+        );
     }
 
     #[test]
