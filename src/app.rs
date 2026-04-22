@@ -617,6 +617,7 @@ impl App {
     }
 
     fn quit(&mut self) {
+        self.speaker.cancel();
         let _ = self.study.progress().save(&self.data_paths.progress_file);
         self.should_quit = true;
     }
