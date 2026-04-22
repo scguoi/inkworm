@@ -2,6 +2,7 @@
 
 use crate::error::AppError;
 use crate::llm::error::LlmError;
+use crate::tts::speaker::TtsError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -73,16 +74,42 @@ pub fn user_message(err: &AppError) -> UserMessage {
             Severity::Error,
         ),
         AppError::Cancelled => UserMessage::new("Cancelled", "", Severity::Info),
-        AppError::Config(_) => UserMessage::new(
-            "Configuration error",
-            "Run /config to fix",
-            Severity::Error,
-        ),
+        AppError::Config(_) => {
+            UserMessage::new("Configuration error", "Run /config to fix", Severity::Error)
+        }
         AppError::Storage(_) => UserMessage::new(
             "Storage error",
             "Check data directory permissions",
             Severity::Error,
         ),
+        AppError::Tts(tts_err) => match tts_err {
+            TtsError::Auth(_) => UserMessage::new(
+                "TTS authentication failed",
+                "Check your iFlytek credentials",
+                Severity::Error,
+            ),
+            TtsError::Network(_) => UserMessage::new(
+                "TTS network error",
+                "Check your internet connection",
+                Severity::Error,
+            ),
+            TtsError::Audio(_) => UserMessage::new(
+                "Audio playback error",
+                "Check your audio device",
+                Severity::Error,
+            ),
+            TtsError::Cache(_) => UserMessage::new(
+                "TTS cache error",
+                "Check disk space and permissions",
+                Severity::Error,
+            ),
+            TtsError::MissingCreds => UserMessage::new(
+                "TTS credentials missing",
+                "Run /config to set up TTS",
+                Severity::Error,
+            ),
+            TtsError::Cancelled => UserMessage::new("TTS cancelled", "", Severity::Info),
+        },
     }
 }
 
@@ -133,5 +160,21 @@ mod tests {
 
         // Storage
         assert_non_empty_headline(AppError::Storage(StorageError::NotFound("x".into())));
+
+        // TTS
+        assert_non_empty_headline(AppError::Tts(crate::tts::speaker::TtsError::Auth(
+            "bad".into(),
+        )));
+        assert_non_empty_headline(AppError::Tts(crate::tts::speaker::TtsError::Network(
+            "timeout".into(),
+        )));
+        assert_non_empty_headline(AppError::Tts(crate::tts::speaker::TtsError::Audio(
+            "no device".into(),
+        )));
+        assert_non_empty_headline(AppError::Tts(crate::tts::speaker::TtsError::Cache(
+            "disk full".into(),
+        )));
+        assert_non_empty_headline(AppError::Tts(crate::tts::speaker::TtsError::MissingCreds));
+        assert_non_empty_headline(AppError::Tts(crate::tts::speaker::TtsError::Cancelled));
     }
 }

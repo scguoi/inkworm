@@ -25,4 +25,6 @@ pub enum GenerateProgress {
 pub enum WizardTaskMsg {
     ConnectivityOk,
     ConnectivityFailed(AppError),
+    TtsProbeOk,
+    TtsProbeFailed(AppError),
 }

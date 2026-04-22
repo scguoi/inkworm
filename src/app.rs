@@ -704,8 +704,11 @@ impl App {
                         self.spawn_connectivity_test();
                     }
                     CommitOutcome::Advance | CommitOutcome::Invalid => {}
-                    CommitOutcome::ProbeTts | CommitOutcome::SaveConfig => {
-                        // TODO(plan-6f-task3): handle TTS probe and save
+                    CommitOutcome::ProbeTts => {
+                        self.spawn_tts_probe();
+                    }
+                    CommitOutcome::SaveConfig => {
+                        self.save_wizard_config();
                     }
                 }
             }
@@ -791,6 +794,52 @@ impl App {
         });
     }
 
+    fn spawn_tts_probe(&mut self) {
+        use crate::ui::config_wizard::{probe_tts, TestingState};
+        use crate::ui::task_msg::WizardTaskMsg;
+
+        let iflytek = match self.config_wizard.as_ref() {
+            Some(s) => s.draft.tts.iflytek.clone(),
+            None => return,
+        };
+        let cancel = CancellationToken::new();
+        if let Some(state) = self.config_wizard.as_mut() {
+            state.testing = Some(TestingState {
+                cancel_token: cancel.clone(),
+            });
+        }
+        let task_tx = self.task_tx.clone();
+        tokio::spawn(async move {
+            let msg = match probe_tts(iflytek, cancel).await {
+                Ok(()) => WizardTaskMsg::TtsProbeOk,
+                Err(e) => WizardTaskMsg::TtsProbeFailed(e),
+            };
+            let _ = task_tx.send(TaskMsg::Wizard(msg)).await;
+        });
+    }
+
+    fn save_wizard_config(&mut self) {
+        let Some(wizard) = self.config_wizard.as_mut() else {
+            return;
+        };
+        wizard.testing = None;
+
+        let mut merged = Config::load(&self.data_paths.config_file).unwrap_or_default();
+        merged.llm = wizard.draft.llm.clone();
+        merged.tts = wizard.draft.tts.clone();
+        match merged.write_atomic(&self.data_paths.config_file) {
+            Ok(()) => {
+                self.config = merged;
+                self.config_wizard = None;
+                self.screen = Screen::Study;
+            }
+            Err(e) => {
+                let app_err = crate::error::AppError::Config(e);
+                wizard.error = Some(user_message(&app_err));
+            }
+        }
+    }
+
     fn handle_wizard_task_msg(&mut self, msg: crate::ui::task_msg::WizardTaskMsg) {
         use crate::ui::error_banner::user_message;
         use crate::ui::task_msg::WizardTaskMsg;
@@ -802,24 +851,20 @@ impl App {
 
         match msg {
             WizardTaskMsg::ConnectivityOk => {
-                // Re-read existing config.toml to preserve non-LLM fields (TTS etc.).
-                // Fall back to Config::default() if file missing or parse error.
-                let mut merged = Config::load(&self.data_paths.config_file).unwrap_or_default();
-                merged.llm = wizard.draft.llm.clone();
-                match merged.write_atomic(&self.data_paths.config_file) {
-                    Ok(()) => {
-                        self.config = merged;
-                        self.config_wizard = None;
-                        self.screen = Screen::Study;
-                    }
-                    Err(e) => {
-                        let app_err = crate::error::AppError::Config(e);
-                        wizard.error = Some(user_message(&app_err));
-                    }
-                }
+                // Advance to TtsEnable step (wizard will handle the flow from there).
+                wizard.step = crate::ui::config_wizard::WizardStep::TtsEnable;
+                wizard.input = if wizard.tts_enabled { "y" } else { "n" }.to_string();
             }
             WizardTaskMsg::ConnectivityFailed(e) => {
                 wizard.error = Some(user_message(&e));
+            }
+            WizardTaskMsg::TtsProbeOk => {
+                self.save_wizard_config();
+            }
+            WizardTaskMsg::TtsProbeFailed(e) => {
+                if let Some(w) = self.config_wizard.as_mut() {
+                    w.error = Some(user_message(&e));
+                }
             }
         }
     }

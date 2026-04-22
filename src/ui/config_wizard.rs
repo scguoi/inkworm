@@ -268,6 +268,28 @@ pub async fn probe_llm(llm: LlmConfig, cancel: CancellationToken) -> Result<(), 
     }
 }
 
+/// Fire a minimal TTS synthesis request to verify iFlytek credentials work.
+/// Uses an ephemeral cache dir and no audio output (cache-only mode).
+pub async fn probe_tts(
+    iflytek: crate::config::IflytekConfig,
+    cancel: CancellationToken,
+) -> Result<(), AppError> {
+    use crate::config::TtsOverride;
+    use crate::tts::speaker::build_speaker;
+
+    let cache_dir = std::env::temp_dir().join("inkworm-tts-probe");
+    std::fs::create_dir_all(&cache_dir).ok();
+
+    let speaker = build_speaker(&iflytek, cache_dir, TtsOverride::On, None);
+
+    tokio::select! {
+        res = speaker.speak("hello") => {
+            res.map_err(AppError::Tts)
+        }
+        _ = cancel.cancelled() => Err(AppError::Cancelled),
+    }
+}
+
 /// Title line for the wizard frame.
 pub fn wizard_title_dynamic(state: &WizardState) -> String {
     let n = state.step_number();
