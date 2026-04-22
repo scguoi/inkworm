@@ -243,12 +243,15 @@ pub fn render_study(frame: &mut Frame, state: &StudyState, cursor_visible: bool)
             return;
         }
         StudyPhase::Complete => {
-            let msg = Paragraph::new("Course complete!")
+            let y = area.height / 2;
+            let complete_msg = Paragraph::new("Course complete!")
                 .style(Style::default().fg(Color::Green))
                 .centered();
-            let y = area.height / 2;
-            let rect = Rect::new(0, y, area.width, 1);
-            frame.render_widget(msg, rect);
+            frame.render_widget(complete_msg, Rect::new(0, y, area.width, 1));
+            let hint = Paragraph::new("Ctrl+P → /import to start a new course, or /list to switch.")
+                .style(Style::default().fg(Color::DarkGray))
+                .centered();
+            frame.render_widget(hint, Rect::new(0, y + 2, area.width, 1));
             return;
         }
         StudyPhase::Active => {}
