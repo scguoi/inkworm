@@ -24,6 +24,14 @@ fn init_tracing(log_dir: &std::path::Path) {
 }
 
 fn main() -> anyhow::Result<()> {
+    if std::env::args()
+        .nth(1)
+        .is_some_and(|a| a == "--version" || a == "-V")
+    {
+        println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     install_panic_hook();
 
     let cli_config: Option<PathBuf> = std::env::args()
