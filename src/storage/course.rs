@@ -119,6 +119,14 @@ pub enum ValidationError {
         drill: usize,
         focus: Focus,
     },
+    #[error(
+        "sentences[{sentence}].drills[{drill}].english contains IPA symbols (belongs in soundmark): {value:?}"
+    )]
+    EnglishContainsIpa {
+        sentence: usize,
+        drill: usize,
+        value: String,
+    },
 }
 
 impl Course {
@@ -190,6 +198,13 @@ impl Course {
                         words,
                     });
                 }
+                if contains_ipa_marker(&d.english) {
+                    errs.push(ValidationError::EnglishContainsIpa {
+                        sentence: i,
+                        drill: j,
+                        value: d.english.clone(),
+                    });
+                }
                 if !is_valid_soundmark(&d.soundmark) {
                     errs.push(ValidationError::SoundmarkFormat {
                         sentence: i,
@@ -226,6 +241,35 @@ fn is_kebab_case(s: &str) -> bool {
         && !s.starts_with('-')
         && !s.ends_with('-')
         && !s.contains("--")
+}
+
+/// IPA symbols that must never appear in a drill's `english` field.
+/// Stress/length markers and vowels/consonants absent from ordinary
+/// English orthography — presence signals the LLM leaked soundmark
+/// content into the english field.
+fn contains_ipa_marker(s: &str) -> bool {
+    s.chars().any(|c| {
+        matches!(
+            c,
+            'ˈ' | 'ˌ'
+                | 'ː'
+                | 'ə'
+                | 'ɒ'
+                | 'ɜ'
+                | 'ʌ'
+                | 'ɪ'
+                | 'ʊ'
+                | 'ɛ'
+                | 'ɔ'
+                | 'ɑ'
+                | 'æ'
+                | 'θ'
+                | 'ð'
+                | 'ʃ'
+                | 'ʒ'
+                | 'ŋ'
+        )
+    })
 }
 
 fn is_valid_soundmark(s: &str) -> bool {

@@ -61,6 +61,10 @@ Rules:
 - The LAST drill MUST have focus="full" and its english MUST match the input english verbatim.
 - `stage` is 1-indexed and strictly increasing.
 - `chinese` is 1-200 chars. `english` is 1-50 words.
+- `english` field REQUIREMENTS:
+  * Plain English words and basic punctuation ONLY (letters, digits, spaces, `.,;:!?'"()-`)
+  * NEVER include IPA symbols (ˈ ˌ ː ə ɒ ɜ ʌ ɪ ʊ ɛ ɔ ɑ æ θ ð ʃ ʒ ŋ, etc.) — those belong solely in `soundmark`
+  * NEVER include slash-delimited phonetic transcriptions
 - `soundmark` REQUIREMENTS:
   * Must be IPA pronunciation of the ENGLISH text, NOT the Chinese text
   * ALL stages (including "full") MUST provide IPA wrapped in /slashes/ per word. Example: "/sɛns/ /wɛər/ /juː/ /ɑːr/"

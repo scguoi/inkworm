@@ -259,6 +259,16 @@ mod course_bad {
     }
 
     #[test]
+    fn english_containing_ipa_reported() {
+        let errs = parse("bad/english_contains_ipa.json").validate();
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ValidationError::EnglishContainsIpa { .. })),
+            "{errs:#?}"
+        );
+    }
+
+    #[test]
     fn empty_title_reported() {
         let errs = parse("bad/empty_title.json").validate();
         assert!(
