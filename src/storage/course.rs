@@ -303,7 +303,7 @@ pub fn list_courses(courses_dir: &std::path::Path) -> Result<Vec<CourseMeta>, St
             total_drills,
         });
     }
-    out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    out.sort_by_key(|b| std::cmp::Reverse(b.created_at));
     Ok(out)
 }
 
