@@ -101,8 +101,9 @@ fn main() -> anyhow::Result<()> {
         app.current_device = tokio::time::timeout(
             std::time::Duration::from_secs(2),
             tokio::task::spawn_blocking(|| {
-                inkworm::tts::device::detect_output_kind().unwrap_or(inkworm::tts::OutputKind::Unknown)
-            })
+                inkworm::tts::device::detect_output_kind()
+                    .unwrap_or(inkworm::tts::OutputKind::Unknown)
+            }),
         )
         .await
         .ok()

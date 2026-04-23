@@ -27,7 +27,10 @@ mod tests {
     const CASES: &[(&str, &str)] = &[
         ("hello", "_____"),
         ("AI", "__"),
-        ("I've been working on it for 2 years.", "_'__ ____ _______ __ __ ___ # _____."),
+        (
+            "I've been working on it for 2 years.",
+            "_'__ ____ _______ __ __ ___ # _____.",
+        ),
         ("", ""),
         ("123", "###"),
         ("hello world", "_____ _____"),

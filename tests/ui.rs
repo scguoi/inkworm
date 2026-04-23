@@ -1,10 +1,10 @@
 mod common;
 
+use chrono::{TimeZone, Utc};
 use inkworm::clock::FixedClock;
 use inkworm::storage::progress::Progress;
 use inkworm::ui::skeleton::skeleton;
 use inkworm::ui::study::{FeedbackState, StudyPhase, StudyState};
-use chrono::{TimeZone, Utc};
 
 fn clock() -> FixedClock {
     FixedClock(Utc.with_ymd_and_hms(2026, 4, 21, 12, 0, 0).unwrap())

@@ -86,9 +86,18 @@ async fn connectivity_ok_advances_to_tts_enable_then_saves() {
     // Now at TtsEnable step with input pre-seeded to "y" (default enabled).
     // Clear and type "n" to decline TTS, then press Enter.
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-    app.on_input(Event::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)));
-    app.on_input(Event::Key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE)));
-    app.on_input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    app.on_input(Event::Key(KeyEvent::new(
+        KeyCode::Backspace,
+        KeyModifiers::NONE,
+    )));
+    app.on_input(Event::Key(KeyEvent::new(
+        KeyCode::Char('n'),
+        KeyModifiers::NONE,
+    )));
+    app.on_input(Event::Key(KeyEvent::new(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+    )));
 
     assert!(matches!(app.screen, Screen::Study));
     assert!(app.config_wizard.is_none());
@@ -159,9 +168,18 @@ async fn atomic_save_preserves_tts_and_generation_fields() {
     // Now at TtsEnable step with input pre-seeded to "y" (default enabled).
     // Clear and type "n" to decline TTS, then press Enter.
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-    app.on_input(Event::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)));
-    app.on_input(Event::Key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE)));
-    app.on_input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    app.on_input(Event::Key(KeyEvent::new(
+        KeyCode::Backspace,
+        KeyModifiers::NONE,
+    )));
+    app.on_input(Event::Key(KeyEvent::new(
+        KeyCode::Char('n'),
+        KeyModifiers::NONE,
+    )));
+    app.on_input(Event::Key(KeyEvent::new(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+    )));
 
     let saved = Config::load(&paths.config_file).unwrap();
     assert_eq!(saved.llm.base_url, server.uri());
@@ -245,7 +263,8 @@ async fn tts_probe_failed_keeps_wizard_open() {
         w.step = WizardStep::TtsApiSecret;
     }
 
-    let err = inkworm::error::AppError::Tts(inkworm::tts::speaker::TtsError::Auth("bad creds".into()));
+    let err =
+        inkworm::error::AppError::Tts(inkworm::tts::speaker::TtsError::Auth("bad creds".into()));
     app.on_task_msg(TaskMsg::Wizard(WizardTaskMsg::TtsProbeFailed(err)));
 
     assert!(matches!(app.screen, Screen::ConfigWizard));
@@ -295,15 +314,27 @@ async fn full_wizard_flow_with_tts_enabled() {
         w.input.clear();
     }
     for c in server.uri().chars() {
-        app.on_input(Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)));
+        app.on_input(Event::Key(KeyEvent::new(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+        )));
     }
-    app.on_input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    app.on_input(Event::Key(KeyEvent::new(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+    )));
 
     // ApiKey
     for c in "sk-test".chars() {
-        app.on_input(Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)));
+        app.on_input(Event::Key(KeyEvent::new(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+        )));
     }
-    app.on_input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    app.on_input(Event::Key(KeyEvent::new(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+    )));
 
     // Model — clear default and type new
     {
@@ -311,41 +342,74 @@ async fn full_wizard_flow_with_tts_enabled() {
         w.input.clear();
     }
     for c in "gpt-4o-mini".chars() {
-        app.on_input(Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)));
+        app.on_input(Event::Key(KeyEvent::new(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+        )));
     }
-    app.on_input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    app.on_input(Event::Key(KeyEvent::new(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+    )));
 
     // LLM probe success
     app.on_task_msg(TaskMsg::Wizard(WizardTaskMsg::ConnectivityOk));
 
     // Now on TtsEnable step
-    assert_eq!(app.config_wizard.as_ref().unwrap().step, WizardStep::TtsEnable);
+    assert_eq!(
+        app.config_wizard.as_ref().unwrap().step,
+        WizardStep::TtsEnable
+    );
 
     // Clear default and type 'y'
     {
         let w = app.config_wizard.as_mut().unwrap();
         w.input.clear();
     }
-    app.on_input(Event::Key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)));
-    app.on_input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    app.on_input(Event::Key(KeyEvent::new(
+        KeyCode::Char('y'),
+        KeyModifiers::NONE,
+    )));
+    app.on_input(Event::Key(KeyEvent::new(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+    )));
 
     // TtsAppId
     for c in "app123".chars() {
-        app.on_input(Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)));
+        app.on_input(Event::Key(KeyEvent::new(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+        )));
     }
-    app.on_input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    app.on_input(Event::Key(KeyEvent::new(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+    )));
 
     // TtsApiKey
     for c in "key456".chars() {
-        app.on_input(Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)));
+        app.on_input(Event::Key(KeyEvent::new(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+        )));
     }
-    app.on_input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    app.on_input(Event::Key(KeyEvent::new(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+    )));
 
     // TtsApiSecret
     for c in "sec789".chars() {
-        app.on_input(Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)));
+        app.on_input(Event::Key(KeyEvent::new(
+            KeyCode::Char(c),
+            KeyModifiers::NONE,
+        )));
     }
-    app.on_input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)));
+    app.on_input(Event::Key(KeyEvent::new(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+    )));
 
     // TTS probe success
     app.on_task_msg(TaskMsg::Wizard(WizardTaskMsg::TtsProbeOk));
@@ -359,4 +423,3 @@ async fn full_wizard_flow_with_tts_enabled() {
     assert_eq!(saved.tts.iflytek.api_secret, "sec789");
     assert!(saved.tts.enabled);
 }
-

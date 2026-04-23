@@ -288,7 +288,9 @@ mod tests {
     fn validate_llm_catches_missing_api_key() {
         let cfg = Config::default();
         let errs = cfg.validate_llm();
-        assert!(errs.iter().any(|e| matches!(e, ConfigError::MissingField("llm.api_key"))));
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, ConfigError::MissingField("llm.api_key"))));
     }
 
     #[test]
@@ -304,7 +306,9 @@ mod tests {
     fn validate_tts_flags_missing_iflytek_when_enabled() {
         let cfg = Config::default();
         let errs = cfg.validate_tts();
-        assert!(errs.iter().any(|e| matches!(e, ConfigError::MissingField("tts.iflytek.app_id"))));
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, ConfigError::MissingField("tts.iflytek.app_id"))));
     }
 
     #[test]
@@ -323,6 +327,12 @@ mod tests {
         cfg.llm.api_key = "sk-ok".into();
         cfg.generation.max_concurrent_calls = 0;
         let errs = cfg.validate_llm();
-        assert!(errs.iter().any(|e| matches!(e, ConfigError::Invalid { field: "generation.max_concurrent_calls", .. })));
+        assert!(errs.iter().any(|e| matches!(
+            e,
+            ConfigError::Invalid {
+                field: "generation.max_concurrent_calls",
+                ..
+            }
+        )));
     }
 }

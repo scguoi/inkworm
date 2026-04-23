@@ -1,16 +1,14 @@
 use crate::clock::Clock;
 use crate::judge;
 use crate::storage::course::{Course, Drill};
-use crate::storage::progress::{
-    Progress,
-};
+use crate::storage::progress::Progress;
 use crate::ui::skeleton::skeleton;
 use ratatui::{
-    Frame,
     layout::Rect,
     style::{Color, Style},
     text::{Line, Span},
     widgets::Paragraph,
+    Frame,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -167,14 +165,8 @@ impl StudyState {
         let drill = &sentence.drills[self.drill_idx];
         let cp = self.progress.course_mut(&course.id);
         cp.last_studied_at = clock.now();
-        let sp = cp
-            .sentences
-            .entry(sentence.order.to_string())
-            .or_default();
-        let dp = sp
-            .drills
-            .entry(drill.stage.to_string())
-            .or_default();
+        let sp = cp.sentences.entry(sentence.order.to_string()).or_default();
+        let dp = sp.drills.entry(drill.stage.to_string()).or_default();
         dp.mastered_count += 1;
         dp.last_correct_at = Some(clock.now());
     }
@@ -259,9 +251,10 @@ pub fn render_study(frame: &mut Frame, state: &StudyState, cursor_visible: bool)
                 .style(Style::default().fg(Color::Green))
                 .centered();
             frame.render_widget(complete_msg, Rect::new(0, y, area.width, 1));
-            let hint = Paragraph::new("Ctrl+P → /import to start a new course, or /list to switch.")
-                .style(Style::default().fg(Color::DarkGray))
-                .centered();
+            let hint =
+                Paragraph::new("Ctrl+P → /import to start a new course, or /list to switch.")
+                    .style(Style::default().fg(Color::DarkGray))
+                    .centered();
             frame.render_widget(hint, Rect::new(0, y + 2, area.width, 1));
             return;
         }
@@ -282,8 +275,7 @@ pub fn render_study(frame: &mut Frame, state: &StudyState, cursor_visible: bool)
     let content_width = area.width.saturating_sub(padding * 2);
 
     // Line 1: Chinese
-    let chinese = Paragraph::new(drill.chinese.as_str())
-        .style(Style::default().fg(Color::White));
+    let chinese = Paragraph::new(drill.chinese.as_str()).style(Style::default().fg(Color::White));
     frame.render_widget(chinese, Rect::new(padding, y_start, content_width, 1));
 
     // Line 2: Soundmark
@@ -300,8 +292,7 @@ pub fn render_study(frame: &mut Frame, state: &StudyState, cursor_visible: bool)
             drill.soundmark.clone()
         }
     };
-    let soundmark = Paragraph::new(soundmark_text)
-        .style(Style::default().fg(Color::DarkGray));
+    let soundmark = Paragraph::new(soundmark_text).style(Style::default().fg(Color::DarkGray));
     frame.render_widget(soundmark, Rect::new(padding, y_start + 1, content_width, 1));
 
     // Line 3: Input with skeleton
@@ -309,7 +300,10 @@ pub fn render_study(frame: &mut Frame, state: &StudyState, cursor_visible: bool)
     let input = state.input();
     let input_line = build_input_line(input, &skel, state.feedback(), cursor_visible);
     let input_para = Paragraph::new(input_line);
-    frame.render_widget(input_para, Rect::new(padding, y_start + 2, content_width, 1));
+    frame.render_widget(
+        input_para,
+        Rect::new(padding, y_start + 2, content_width, 1),
+    );
 
     // Line 4 (only when wrong): Reference answer
     if is_wrong {
@@ -318,7 +312,10 @@ pub fn render_study(frame: &mut Frame, state: &StudyState, cursor_visible: bool)
             Span::styled(&drill.english, Style::default().fg(Color::DarkGray)),
         ]);
         let reference_para = Paragraph::new(reference_line);
-        frame.render_widget(reference_para, Rect::new(padding, y_start + 3, content_width, 1));
+        frame.render_widget(
+            reference_para,
+            Rect::new(padding, y_start + 3, content_width, 1),
+        );
     }
 }
 
@@ -342,7 +339,9 @@ fn build_input_line<'a>(
         }
         FeedbackState::Wrong { diff_index } => {
             // Typed portion up to diff
-            let before: String = input_chars[..*diff_index.min(&input_chars.len())].iter().collect();
+            let before: String = input_chars[..*diff_index.min(&input_chars.len())]
+                .iter()
+                .collect();
             spans.push(Span::styled(before, Style::default().fg(Color::White)));
             // Diff char
             if *diff_index < input_chars.len() {
@@ -452,7 +451,10 @@ mod tests {
             state.type_char(c);
         }
         state.submit(&clk);
-        assert!(matches!(*state.feedback(), FeedbackState::Wrong { diff_index: 8 }));
+        assert!(matches!(
+            *state.feedback(),
+            FeedbackState::Wrong { diff_index: 8 }
+        ));
     }
 
     #[test]
@@ -489,11 +491,35 @@ mod tests {
         let cp = progress.course_mut("2026-04-21-ted-ai");
         cp.last_studied_at = clk.now();
         let sp1 = cp.sentences.entry("1".into()).or_default();
-        sp1.drills.insert("1".into(), DrillProgress { mastered_count: 1, last_correct_at: Some(clk.now()) });
-        sp1.drills.insert("2".into(), DrillProgress { mastered_count: 1, last_correct_at: Some(clk.now()) });
-        sp1.drills.insert("3".into(), DrillProgress { mastered_count: 1, last_correct_at: Some(clk.now()) });
+        sp1.drills.insert(
+            "1".into(),
+            DrillProgress {
+                mastered_count: 1,
+                last_correct_at: Some(clk.now()),
+            },
+        );
+        sp1.drills.insert(
+            "2".into(),
+            DrillProgress {
+                mastered_count: 1,
+                last_correct_at: Some(clk.now()),
+            },
+        );
+        sp1.drills.insert(
+            "3".into(),
+            DrillProgress {
+                mastered_count: 1,
+                last_correct_at: Some(clk.now()),
+            },
+        );
         let sp2 = cp.sentences.entry("2".into()).or_default();
-        sp2.drills.insert("1".into(), DrillProgress { mastered_count: 1, last_correct_at: Some(clk.now()) });
+        sp2.drills.insert(
+            "1".into(),
+            DrillProgress {
+                mastered_count: 1,
+                last_correct_at: Some(clk.now()),
+            },
+        );
 
         let state = StudyState::new(Some(fixture_course()), progress);
         let drill = state.current_drill().unwrap();

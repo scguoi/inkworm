@@ -111,7 +111,9 @@ pub enum ValidationError {
         drill: usize,
         value: String,
     },
-    #[error("sentences[{sentence}].drills[{drill}].soundmark must not be empty for focus={focus:?}")]
+    #[error(
+        "sentences[{sentence}].drills[{drill}].soundmark must not be empty for focus={focus:?}"
+    )]
     SoundmarkMissing {
         sentence: usize,
         drill: usize,

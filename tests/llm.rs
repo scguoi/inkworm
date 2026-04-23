@@ -194,7 +194,10 @@ mod reflexion_phase1 {
             max_concurrent: 5,
             cancel: CancellationToken::new(),
         };
-        let out = r.reflexion_split("article text", "intermediate").await.unwrap();
+        let out = r
+            .reflexion_split("article text", "intermediate")
+            .await
+            .unwrap();
         assert_eq!(out.sentences.len(), 5);
         assert_eq!(out.title, "AI at work");
         // No failed/ report written.
@@ -258,7 +261,10 @@ mod reflexion_phase1 {
             max_concurrent: 5,
             cancel: CancellationToken::new(),
         };
-        let err = r.reflexion_split("article", "intermediate").await.unwrap_err();
+        let err = r
+            .reflexion_split("article", "intermediate")
+            .await
+            .unwrap_err();
         match err {
             ReflexionError::AllAttemptsFailed {
                 phase,
@@ -293,7 +299,10 @@ mod reflexion_phase1 {
             max_concurrent: 5,
             cancel: CancellationToken::new(),
         };
-        let err = r.reflexion_split("article", "intermediate").await.unwrap_err();
+        let err = r
+            .reflexion_split("article", "intermediate")
+            .await
+            .unwrap_err();
         assert!(matches!(err, ReflexionError::Llm(_)), "{err:?}");
         // No failed/ report for transport errors.
         let failed: Vec<_> = std::fs::read_dir(&paths.failed_dir).unwrap().collect();
@@ -329,7 +338,10 @@ mod reflexion_phase1 {
             max_concurrent: 5,
             cancel,
         };
-        let err = r.reflexion_split("article", "intermediate").await.unwrap_err();
+        let err = r
+            .reflexion_split("article", "intermediate")
+            .await
+            .unwrap_err();
         assert!(
             matches!(
                 err,
@@ -616,7 +628,12 @@ mod reflexion_e2e {
         };
 
         let out = r
-            .generate("This is a sample article body with enough context.", "intermediate", &[], None)
+            .generate(
+                "This is a sample article body with enough context.",
+                "intermediate",
+                &[],
+                None,
+            )
             .await
             .unwrap();
 
