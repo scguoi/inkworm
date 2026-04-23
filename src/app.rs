@@ -435,9 +435,7 @@ impl App {
         match gen_state {
             GenerateSubstate::Pasting(_) => {
                 // Ctrl+C: quit
-                if key.modifiers.contains(KeyModifiers::CONTROL)
-                    && key.code == KeyCode::Char('c')
-                {
+                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
                     self.quit();
                     return;
                 }
@@ -446,19 +444,17 @@ impl App {
                     && key.code == KeyCode::Char('d'))
                     || key.code == KeyCode::F(5);
                 if is_submit {
-                    let can_submit =
-                        if let Some(GenerateSubstate::Pasting(p)) = &self.generate {
-                            p.can_submit(self.config.generation.max_article_bytes)
-                        } else {
-                            false
-                        };
+                    let can_submit = if let Some(GenerateSubstate::Pasting(p)) = &self.generate {
+                        p.can_submit(self.config.generation.max_article_bytes)
+                    } else {
+                        false
+                    };
                     if can_submit {
-                        let text =
-                            if let Some(GenerateSubstate::Pasting(p)) = &self.generate {
-                                p.get_text()
-                            } else {
-                                return;
-                            };
+                        let text = if let Some(GenerateSubstate::Pasting(p)) = &self.generate {
+                            p.get_text()
+                        } else {
+                            return;
+                        };
                         self.submit_generate(text);
                     }
                     return;
@@ -478,7 +474,7 @@ impl App {
                     if let Some(GenerateSubstate::Running(ref r)) = self.generate {
                         r.cancel_token.cancel();
                     }
-                    self.generate = Some(GenerateSubstate::Pasting(PastingState::new()));
+                    self.generate = Some(GenerateSubstate::Pasting(Box::default()));
                 }
             }
             GenerateSubstate::Result(result) => {
@@ -495,7 +491,7 @@ impl App {
                         } else {
                             let mut pasting = PastingState::new();
                             pasting.textarea.insert_str(&article_text);
-                            self.generate = Some(GenerateSubstate::Pasting(pasting));
+                            self.generate = Some(GenerateSubstate::Pasting(Box::new(pasting)));
                         }
                     }
                     _ => {}
@@ -635,7 +631,7 @@ impl App {
             }
             "help" => self.screen = Screen::Help,
             "import" => {
-                self.generate = Some(GenerateSubstate::Pasting(PastingState::new()));
+                self.generate = Some(GenerateSubstate::Pasting(Box::default()));
                 self.screen = Screen::Generate;
             }
             "config" => {
@@ -774,7 +770,11 @@ impl App {
             Screen::TtsStatus => {
                 crate::ui::study::render_study(frame, &self.study, self.cursor_visible);
                 let cache_stats = crate::tts::cache::cache_stats(&self.data_paths.tts_cache_dir);
-                let last_error = self.last_tts_error.try_lock().ok().and_then(|guard| guard.clone());
+                let last_error = self
+                    .last_tts_error
+                    .try_lock()
+                    .ok()
+                    .and_then(|guard| guard.clone());
                 crate::ui::tts_status::render_tts_status(
                     frame,
                     &self.config.tts,

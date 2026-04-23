@@ -5,7 +5,7 @@ use crate::ui::error_banner::UserMessage;
 
 #[derive(Debug)]
 pub enum GenerateSubstate {
-    Pasting(PastingState),
+    Pasting(Box<PastingState>),
     Running(RunningState),
     Result(ResultState),
 }
@@ -112,30 +112,6 @@ impl ResultState {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pasting_byte_and_word_count() {
-        let mut state = PastingState::new();
-        state.textarea.insert_str("hello world");
-        assert_eq!(state.byte_count(), 11);
-        assert_eq!(state.word_count(), 2);
-    }
-
-    #[test]
-    fn can_submit_requires_non_empty_and_under_limit() {
-        let mut state = PastingState::new();
-        assert!(!state.can_submit(100));
-        state.textarea.insert_str("test");
-        assert!(state.can_submit(100));
-        let mut state2 = PastingState::new();
-        state2.textarea.insert_str(&"a".repeat(101));
-        assert!(!state2.can_submit(100));
-    }
-}
-
 use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
@@ -148,7 +124,7 @@ pub fn render_generate(frame: &mut Frame, state: &GenerateSubstate, max_bytes: u
 
     match state {
         GenerateSubstate::Pasting(pasting) => {
-            render_pasting(frame, area, pasting, max_bytes);
+            render_pasting(frame, area, pasting.as_ref(), max_bytes);
         }
         GenerateSubstate::Running(running) => {
             render_running(frame, area, running);
@@ -169,11 +145,7 @@ fn render_pasting(frame: &mut Frame, area: Rect, state: &PastingState, max_bytes
     let byte_count = state.byte_count();
     let word_count = state.word_count();
     let can_submit = state.can_submit(max_bytes);
-    let status_color = if can_submit {
-        Color::Green
-    } else {
-        Color::Red
-    };
+    let status_color = if can_submit { Color::Green } else { Color::Red };
     let status_text = format!(
         "{} bytes / {} words / {} limit {}",
         byte_count,
@@ -254,5 +226,29 @@ fn render_result(frame: &mut Frame, area: Rect, state: &ResultState) {
             .style(Style::default().fg(Color::DarkGray))
             .centered();
         frame.render_widget(actions, Rect::new(0, y + 2, area.width, 1));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pasting_byte_and_word_count() {
+        let mut state = PastingState::new();
+        state.textarea.insert_str("hello world");
+        assert_eq!(state.byte_count(), 11);
+        assert_eq!(state.word_count(), 2);
+    }
+
+    #[test]
+    fn can_submit_requires_non_empty_and_under_limit() {
+        let mut state = PastingState::new();
+        assert!(!state.can_submit(100));
+        state.textarea.insert_str("test");
+        assert!(state.can_submit(100));
+        let mut state2 = PastingState::new();
+        state2.textarea.insert_str("a".repeat(101));
+        assert!(!state2.can_submit(100));
     }
 }

@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn phase1_system_mentions_sentences_range() {
-        assert!(PHASE1_SYSTEM.contains("5–20"));
+        assert!(phase1_system("intermediate").contains("5–20"));
     }
 
     #[test]

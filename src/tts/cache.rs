@@ -99,9 +99,9 @@ mod tests {
     #[test]
     fn cache_stats_counts_wav_files_only() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(tmp.path().join("a.wav"), &[0u8; 100]).unwrap();
-        std::fs::write(tmp.path().join("b.wav"), &[0u8; 200]).unwrap();
-        std::fs::write(tmp.path().join("c.txt"), &[0u8; 999]).unwrap();
+        std::fs::write(tmp.path().join("a.wav"), [0u8; 100]).unwrap();
+        std::fs::write(tmp.path().join("b.wav"), [0u8; 200]).unwrap();
+        std::fs::write(tmp.path().join("c.txt"), [0u8; 999]).unwrap();
         let (count, bytes) = super::cache_stats(tmp.path());
         assert_eq!(count, 2);
         assert_eq!(bytes, 300);

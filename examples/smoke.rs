@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use inkworm::clock::SystemClock;
+use inkworm::config::EnglishLevel;
 use inkworm::llm::client::ReqwestClient;
 use inkworm::llm::reflexion::Reflexion;
 use inkworm::storage::paths::DataPaths;
@@ -52,7 +53,14 @@ async fn main() -> anyhow::Result<()> {
 
     eprintln!("Generating course from {article_path:?} …");
     let t0 = std::time::Instant::now();
-    let outcome = r.generate(&article, &[], None).await?;
+    let outcome = r
+        .generate(
+            &article,
+            EnglishLevel::Intermediate.prompt_description(),
+            &[],
+            None,
+        )
+        .await?;
     let elapsed = t0.elapsed();
     eprintln!("Done in {elapsed:.2?}. Course:");
     println!("{}", serde_json::to_string_pretty(&outcome.course)?);

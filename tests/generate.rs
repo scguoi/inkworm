@@ -8,12 +8,13 @@ fn pasting_state_transitions() {
     assert_eq!(state.word_count(), 0);
     assert!(!state.can_submit(100));
 
-    state.text = "test article".to_string();
+    state.textarea.insert_str("test article");
     assert_eq!(state.byte_count(), 12);
     assert_eq!(state.word_count(), 2);
     assert!(state.can_submit(100));
 
-    state.text = "a".repeat(101);
+    let mut state = PastingState::new();
+    state.textarea.insert_str("a".repeat(101));
     assert!(!state.can_submit(100));
 }
 

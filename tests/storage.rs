@@ -124,18 +124,6 @@ mod course_schema {
         assert_eq!(course.sentences.len(), 20);
         assert!(course.sentences.iter().all(|s| s.drills.len() == 5));
     }
-
-    #[test]
-    fn good_soundmark_empty_validates() {
-        let json = load("good/soundmark_empty.json");
-        let course: Course = serde_json::from_str(&json).expect("deserialize");
-        let errs = course.validate();
-        assert!(errs.is_empty(), "unexpected errors: {errs:#?}");
-        assert!(course
-            .sentences
-            .iter()
-            .all(|s| s.drills.iter().all(|d| d.soundmark.is_empty())));
-    }
 }
 
 mod course_bad {
@@ -256,6 +244,16 @@ mod course_bad {
         assert!(
             errs.iter()
                 .any(|e| matches!(e, ValidationError::SoundmarkFormat { .. })),
+            "{errs:#?}"
+        );
+    }
+
+    #[test]
+    fn soundmark_missing_reported() {
+        let errs = parse("bad/soundmark_missing.json").validate();
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ValidationError::SoundmarkMissing { .. })),
             "{errs:#?}"
         );
     }
