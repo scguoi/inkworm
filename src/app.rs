@@ -212,6 +212,12 @@ impl App {
                 let _ = task_tx.blocking_send(TaskMsg::DeviceDetected(kind));
             });
         }
+        // Auto-advance after a correct answer (0.5s linger).
+        if matches!(self.screen, Screen::Study) && self.study.auto_advance_if_due(self.clock.now())
+        {
+            let _ = self.study.progress().save(&self.data_paths.progress_file);
+            self.speak_current_drill();
+        }
     }
 
     pub fn on_input(&mut self, event: Event) {

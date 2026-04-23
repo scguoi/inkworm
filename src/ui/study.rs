@@ -3,6 +3,7 @@ use crate::judge;
 use crate::storage::course::{Course, Drill};
 use crate::storage::progress::Progress;
 use crate::ui::skeleton::skeleton;
+use chrono::{DateTime, Utc};
 use ratatui::{
     layout::Rect,
     style::{Color, Style},
@@ -10,6 +11,11 @@ use ratatui::{
     widgets::Paragraph,
     Frame,
 };
+
+/// Milliseconds to linger on the green "✓" before auto-advancing to the
+/// next drill. Long enough to register the win; short enough to keep
+/// typing flow unbroken.
+pub const AUTO_ADVANCE_DELAY_MS: i64 = 500;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FeedbackState {
@@ -33,6 +39,9 @@ pub struct StudyState {
     feedback: FeedbackState,
     phase: StudyPhase,
     progress: Progress,
+    /// Timestamp of the most recent correct submission. `None` unless
+    /// `feedback == Correct`. Drives the 0.5s auto-advance tick.
+    correct_at: Option<DateTime<Utc>>,
 }
 
 impl StudyState {
@@ -45,6 +54,7 @@ impl StudyState {
             feedback: FeedbackState::Typing,
             phase: StudyPhase::Empty,
             progress,
+            correct_at: None,
         };
         state.resolve_phase();
         if state.phase == StudyPhase::Active {
@@ -150,10 +160,29 @@ impl StudyState {
         if judge::equals(&self.input, &drill.english) {
             self.record_correct(clock);
             self.feedback = FeedbackState::Correct;
+            self.correct_at = Some(clock.now());
         } else {
             let diff_index = find_first_diff(&self.input, &drill.english);
             self.feedback = FeedbackState::Wrong { diff_index };
         }
+    }
+
+    /// Returns `true` if the state advanced to the next drill. Call from a
+    /// tick loop after `feedback` becomes `Correct` to auto-advance once
+    /// [`AUTO_ADVANCE_DELAY_MS`] has elapsed. A no-op when no correct answer
+    /// is pending.
+    pub fn auto_advance_if_due(&mut self, now: DateTime<Utc>) -> bool {
+        if self.feedback != FeedbackState::Correct {
+            return false;
+        }
+        let Some(correct_at) = self.correct_at else {
+            return false;
+        };
+        if now.signed_duration_since(correct_at).num_milliseconds() < AUTO_ADVANCE_DELAY_MS {
+            return false;
+        }
+        self.next_drill();
+        true
     }
 
     fn record_correct(&mut self, clock: &dyn Clock) {
@@ -217,6 +246,7 @@ impl StudyState {
         }
         self.input.clear();
         self.feedback = FeedbackState::Typing;
+        self.correct_at = None;
     }
 }
 
@@ -452,6 +482,50 @@ mod tests {
         assert_eq!(*state.feedback(), FeedbackState::Typing);
         assert_eq!(state.input(), "");
         assert_eq!(state.current_drill().unwrap().stage, 2);
+    }
+
+    #[test]
+    fn auto_advance_waits_then_fires() {
+        let clk = clock();
+        let t0 = clk.0;
+        let mut state = StudyState::new(Some(fixture_course()), Progress::empty());
+        for c in "AI think day".chars() {
+            state.type_char(c);
+        }
+        state.submit(&clk);
+        assert_eq!(*state.feedback(), FeedbackState::Correct);
+
+        // Immediately: too soon.
+        assert!(!state.auto_advance_if_due(t0));
+        assert_eq!(*state.feedback(), FeedbackState::Correct);
+
+        // 499ms in: still waiting.
+        let almost = t0 + chrono::Duration::milliseconds(AUTO_ADVANCE_DELAY_MS - 1);
+        assert!(!state.auto_advance_if_due(almost));
+        assert_eq!(*state.feedback(), FeedbackState::Correct);
+
+        // 500ms in: fires.
+        let due = t0 + chrono::Duration::milliseconds(AUTO_ADVANCE_DELAY_MS);
+        assert!(state.auto_advance_if_due(due));
+        assert_eq!(*state.feedback(), FeedbackState::Typing);
+        assert_eq!(state.current_drill().unwrap().stage, 2);
+
+        // Subsequent ticks are no-ops (feedback is no longer Correct).
+        let later = t0 + chrono::Duration::seconds(10);
+        assert!(!state.auto_advance_if_due(later));
+    }
+
+    #[test]
+    fn auto_advance_no_op_without_correct() {
+        let clk = clock();
+        let mut state = StudyState::new(Some(fixture_course()), Progress::empty());
+        // Typing state — never correct.
+        assert!(!state.auto_advance_if_due(clk.0));
+        // Wrong state — also never auto-advances.
+        state.type_char('X');
+        state.submit(&clk);
+        assert!(matches!(*state.feedback(), FeedbackState::Wrong { .. }));
+        assert!(!state.auto_advance_if_due(clk.0 + chrono::Duration::seconds(5)));
     }
 
     #[test]
