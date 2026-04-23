@@ -74,6 +74,30 @@ pub struct GenerationConfig {
     pub max_concurrent_calls: usize,
     #[serde(default = "default_max_article")]
     pub max_article_bytes: usize,
+    #[serde(default = "default_english_level")]
+    pub english_level: EnglishLevel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EnglishLevel {
+    Beginner,
+    Intermediate,
+    Advanced,
+}
+
+fn default_english_level() -> EnglishLevel {
+    EnglishLevel::Intermediate
+}
+
+impl EnglishLevel {
+    pub fn prompt_description(self) -> &'static str {
+        match self {
+            EnglishLevel::Beginner => "beginner (CEFR A1-A2): select simple sentences with common vocabulary and basic grammar. Skip sentences with advanced vocabulary, complex clauses, or idiomatic expressions.",
+            EnglishLevel::Intermediate => "intermediate (CEFR B1-B2): select sentences with moderate complexity. Skip very simple sentences and extremely advanced ones. Focus on useful grammar patterns and practical vocabulary.",
+            EnglishLevel::Advanced => "advanced (CEFR C1-C2): select challenging sentences with rich vocabulary, complex structures, and nuanced expressions. Skip overly simple sentences.",
+        }
+    }
 }
 
 fn default_max_concurrent() -> usize {
@@ -88,6 +112,7 @@ impl Default for GenerationConfig {
         Self {
             max_concurrent_calls: default_max_concurrent(),
             max_article_bytes: default_max_article(),
+            english_level: default_english_level(),
         }
     }
 }

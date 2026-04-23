@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 use crate::clock::Clock;
 use crate::llm::client::LlmClient;
 use crate::llm::error::LlmError;
-use crate::llm::prompt::{repair_message, PHASE1_SYSTEM};
+use crate::llm::prompt::{phase1_system, repair_message};
 use crate::llm::types::{ChatRequest, RawSentences};
 use crate::storage::failed::{save_failed_response, AttemptFailure};
 use crate::storage::DataPaths;
@@ -56,12 +56,16 @@ pub struct Reflexion<'a> {
 
 impl<'a> Reflexion<'a> {
     /// Phase 1: one LLM call (with up to 3 repairs) producing a `RawSentences`.
-    pub async fn reflexion_split(&self, article: &str) -> Result<RawSentences, ReflexionError> {
+    pub async fn reflexion_split(
+        &self,
+        article: &str,
+        level_description: &str,
+    ) -> Result<RawSentences, ReflexionError> {
         let user_prompt =
             format!("Article to split:\n\"\"\"\n{article}\n\"\"\"\n\nReturn JSON only.");
         let mut req = ChatRequest::system_and_user(
             self.model.to_string(),
-            PHASE1_SYSTEM.to_string(),
+            phase1_system(level_description),
             user_prompt.clone(),
         );
         let mut failures: Vec<AttemptFailure> = Vec::new();
@@ -279,6 +283,7 @@ impl<'a> Reflexion<'a> {
     pub async fn generate(
         &self,
         article: &str,
+        level_description: &str,
         existing_ids: &[String],
         progress_tx: Option<tokio::sync::mpsc::Sender<crate::ui::task_msg::GenerateProgress>>,
     ) -> Result<ReflexionOutcome, ReflexionError> {
@@ -287,7 +292,7 @@ impl<'a> Reflexion<'a> {
                 .send(crate::ui::task_msg::GenerateProgress::Phase1Started)
                 .await;
         }
-        let phase1 = self.reflexion_split(article).await?;
+        let phase1 = self.reflexion_split(article, level_description).await?;
         if let Some(tx) = &progress_tx {
             let _ = tx
                 .send(crate::ui::task_msg::GenerateProgress::Phase1Done {

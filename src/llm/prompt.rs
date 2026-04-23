@@ -9,25 +9,34 @@ use std::fmt::Write as _;
 use crate::storage::course::ValidationError;
 
 /// Phase 1 system prompt: article → title + description + sentences.
-pub const PHASE1_SYSTEM: &str = r#"You are a bilingual language tutor preparing a typing-practice lesson from an English article.
+/// Takes user's English level as a parameter to filter appropriate sentences.
+pub fn phase1_system(level_description: &str) -> String {
+    format!(
+        r#"You are a bilingual language tutor preparing a typing-practice lesson from an English article.
+
+The learner's English level is: {level_description}
 
 Output ONLY JSON, no markdown fences, no commentary. Schema:
 
-{
+{{
   "title":       "English string, 1-100 chars, a concise lesson title",
   "description": "Optional Chinese description, ≤300 chars (empty string allowed)",
   "sentences": [
-    { "chinese": "natural Chinese translation (1-200 chars)",
-      "english": "sentence from the article, 5-30 words, self-contained, typable ASCII" }
+    {{ "chinese": "natural Chinese translation (1-200 chars)",
+      "english": "sentence from the article, 5-30 words, self-contained, typable ASCII" }}
   ]
-}
+}}
 
 Rules:
-- Select 5–20 pedagogically useful sentences (varied grammar, common phrasing).
+- Select 5–20 pedagogically useful sentences appropriate for the learner's level.
+- Filter sentences based on the level description above — skip sentences that are too easy or too difficult.
+- Prioritize sentences with useful vocabulary and grammar patterns for this level.
 - If the article is long, pick the most instructive sentences; do NOT quote the whole article.
 - Each English sentence must be typable (ASCII letters, straight quotes, basic punctuation).
 - Return JSON only.
-"#;
+"#
+    )
+}
 
 /// Phase 2 system prompt: one sentence → 3–5 progressive drills.
 pub const PHASE2_SYSTEM: &str = r#"You are a bilingual language tutor decomposing a single sentence into 3–5 progressive typing drills.

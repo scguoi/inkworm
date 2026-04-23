@@ -121,11 +121,12 @@ mod client {
 }
 
 mod prompts {
-    use inkworm::llm::prompt::{PHASE1_SYSTEM, PHASE2_SYSTEM, REPAIR_TEMPLATE};
+    use inkworm::llm::prompt::{phase1_system, PHASE2_SYSTEM, REPAIR_TEMPLATE};
 
     #[test]
     fn phase1_system_snapshot() {
-        insta::assert_snapshot!("phase1_system", PHASE1_SYSTEM);
+        let intermediate_desc = "intermediate (CEFR B1-B2): select sentences with moderate complexity. Skip very simple sentences and extremely advanced ones. Focus on useful grammar patterns and practical vocabulary.";
+        insta::assert_snapshot!("phase1_system", phase1_system(intermediate_desc));
     }
 
     #[test]
@@ -193,7 +194,7 @@ mod reflexion_phase1 {
             max_concurrent: 5,
             cancel: CancellationToken::new(),
         };
-        let out = r.reflexion_split("article text").await.unwrap();
+        let out = r.reflexion_split("article text", "intermediate").await.unwrap();
         assert_eq!(out.sentences.len(), 5);
         assert_eq!(out.title, "AI at work");
         // No failed/ report written.
@@ -234,7 +235,7 @@ mod reflexion_phase1 {
             max_concurrent: 5,
             cancel: CancellationToken::new(),
         };
-        let out = r.reflexion_split("article").await.unwrap();
+        let out = r.reflexion_split("article", "intermediate").await.unwrap();
         assert_eq!(out.sentences.len(), 5);
     }
 
@@ -257,7 +258,7 @@ mod reflexion_phase1 {
             max_concurrent: 5,
             cancel: CancellationToken::new(),
         };
-        let err = r.reflexion_split("article").await.unwrap_err();
+        let err = r.reflexion_split("article", "intermediate").await.unwrap_err();
         match err {
             ReflexionError::AllAttemptsFailed {
                 phase,
@@ -292,7 +293,7 @@ mod reflexion_phase1 {
             max_concurrent: 5,
             cancel: CancellationToken::new(),
         };
-        let err = r.reflexion_split("article").await.unwrap_err();
+        let err = r.reflexion_split("article", "intermediate").await.unwrap_err();
         assert!(matches!(err, ReflexionError::Llm(_)), "{err:?}");
         // No failed/ report for transport errors.
         let failed: Vec<_> = std::fs::read_dir(&paths.failed_dir).unwrap().collect();
@@ -328,7 +329,7 @@ mod reflexion_phase1 {
             max_concurrent: 5,
             cancel,
         };
-        let err = r.reflexion_split("article").await.unwrap_err();
+        let err = r.reflexion_split("article", "intermediate").await.unwrap_err();
         assert!(
             matches!(
                 err,
@@ -615,7 +616,7 @@ mod reflexion_e2e {
         };
 
         let out = r
-            .generate("This is a sample article body with enough context.", &[], None)
+            .generate("This is a sample article body with enough context.", "intermediate", &[], None)
             .await
             .unwrap();
 

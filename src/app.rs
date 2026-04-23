@@ -580,8 +580,10 @@ impl App {
                 }
             });
 
+            let level_desc = config.generation.english_level.prompt_description();
+
             match reflexion
-                .generate(&article, &existing_ids, Some(progress_tx_clone))
+                .generate(&article, level_desc, &existing_ids, Some(progress_tx_clone))
                 .await
             {
                 Ok(outcome) => {
