@@ -532,7 +532,7 @@ pub fn should_speak(mode: TtsMode, device: OutputKind, has_creds: bool) -> bool 
 | `/import` | 无 | 新建课程（跳 Generate 全屏） |
 | `/list` | 无 | 课程列表（覆盖层） |
 | `/config` | 无 | 配置向导 |
-| `/tts` | `on` / `off` / `auto` / 无（查看） | TTS 开关与查看 |
+| `/tts` | `on` / `off` / `auto` / 无（查看） | TTS 开关与查看（session-only，不写入 config.toml；持久默认值通过 `/config` 或手改配置文件设置） |
 | `/tts clear-cache` | 无 | 清空 TTS 缓存 |
 | `/skip` | 无 | 跳过当前 drill |
 | `/delete` | 无 | 删除当前课程（Confirm） |

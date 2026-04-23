@@ -50,10 +50,14 @@ fn type_chars(app: &mut App, s: &str) {
 }
 
 #[test]
-fn tts_on_updates_config_and_persists() {
+fn tts_on_updates_in_memory_only_not_persisted() {
     let tmp = tempfile::tempdir().unwrap();
     let paths = DataPaths::for_tests(tmp.path().to_path_buf());
     paths.ensure_dirs().unwrap();
+    // Seed config.toml with Auto so we can detect any unintended write.
+    let mut seed = Config::default();
+    seed.tts.r#override = TtsOverride::Auto;
+    seed.write_atomic(&paths.config_file).unwrap();
     let mut app = make_app(paths.clone());
 
     app.on_input(ctrl('p'));
@@ -62,14 +66,21 @@ fn tts_on_updates_config_and_persists() {
 
     assert_eq!(app.config.tts.r#override, TtsOverride::On);
     let reloaded = Config::load(&paths.config_file).unwrap();
-    assert_eq!(reloaded.tts.r#override, TtsOverride::On);
+    assert_eq!(
+        reloaded.tts.r#override,
+        TtsOverride::Auto,
+        "palette /tts must not touch config.toml"
+    );
 }
 
 #[test]
-fn tts_off_then_auto_cycles_correctly() {
+fn tts_off_then_auto_cycles_in_memory_only() {
     let tmp = tempfile::tempdir().unwrap();
     let paths = DataPaths::for_tests(tmp.path().to_path_buf());
     paths.ensure_dirs().unwrap();
+    let mut seed = Config::default();
+    seed.tts.r#override = TtsOverride::On;
+    seed.write_atomic(&paths.config_file).unwrap();
     let mut app = make_app(paths.clone());
 
     app.on_input(ctrl('p'));
@@ -83,7 +94,11 @@ fn tts_off_then_auto_cycles_correctly() {
     assert_eq!(app.config.tts.r#override, TtsOverride::Auto);
 
     let reloaded = Config::load(&paths.config_file).unwrap();
-    assert_eq!(reloaded.tts.r#override, TtsOverride::Auto);
+    assert_eq!(
+        reloaded.tts.r#override,
+        TtsOverride::On,
+        "palette /tts must not touch config.toml"
+    );
 }
 
 #[test]

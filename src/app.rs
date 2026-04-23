@@ -669,10 +669,10 @@ impl App {
     }
 
     fn set_tts_override(&mut self, new_mode: crate::config::TtsOverride) {
+        // Session-only: do not persist to config.toml. The TOML-level default
+        // is a deliberate user choice; palette toggles are transient overrides
+        // for the running process.
         self.config.tts.r#override = new_mode;
-        if let Err(e) = self.config.write_atomic(&self.data_paths.config_file) {
-            eprintln!("Failed to save TTS override: {e}");
-        }
     }
 
     fn execute_logs(&mut self) {
