@@ -225,11 +225,22 @@ fn find_first_diff(input: &str, reference: &str) -> usize {
     let ref_chars: Vec<char> = reference.chars().collect();
     for (i, rc) in ref_chars.iter().enumerate() {
         match input_chars.get(i) {
-            Some(ic) if ic == rc => continue,
+            Some(ic) if char_fold(*ic) == char_fold(*rc) => continue,
             _ => return i,
         }
     }
     ref_chars.len()
+}
+
+/// Per-character normalization matching `judge::normalize`'s character-level
+/// rules (case folding + curly-quote folding), so the highlighted diff index
+/// agrees with `judge::equals`'s verdict.
+fn char_fold(c: char) -> char {
+    match c {
+        '\u{2018}' | '\u{2019}' => '\'',
+        '\u{201C}' | '\u{201D}' => '"',
+        _ => c.to_ascii_lowercase(),
+    }
 }
 
 pub fn render_study(frame: &mut Frame, state: &StudyState, cursor_visible: bool) {
@@ -533,6 +544,10 @@ mod tests {
         assert_eq!(find_first_diff("helo", "hello"), 3);
         assert_eq!(find_first_diff("", "hello"), 0);
         assert_eq!(find_first_diff("hello world", "hello"), 5);
-        assert_eq!(find_first_diff("Hello", "hello"), 0);
+        // Case mismatch alone is not a diff — `judge::equals` treats it as equal.
+        assert_eq!(find_first_diff("Hello", "hello"), 5);
+        assert_eq!(find_first_diff("you triggle", "You trigger"), 9);
+        // Curly quote folds to straight — no diff.
+        assert_eq!(find_first_diff("I\u{2019}ve", "I've"), 4);
     }
 }
