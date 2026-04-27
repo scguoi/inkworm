@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 use crate::clock::Clock;
 use crate::config::Config;
 use crate::storage::course::Course;
+use crate::storage::mistakes::MistakeBook;
 use crate::storage::progress::Progress;
 use crate::storage::DataPaths;
 use crate::tts::speaker::Speaker;
@@ -43,6 +44,7 @@ pub struct App {
     pub task_tx: mpsc::Sender<TaskMsg>,
     pub generate: Option<GenerateSubstate>,
     pub config: Config,
+    pub mistakes: MistakeBook,
     pub delete_confirming: Option<String>,
     pub config_wizard: Option<crate::ui::config_wizard::WizardState>,
     pub course_list: Option<crate::ui::course_list::CourseListState>,
@@ -64,6 +66,7 @@ impl App {
         data_paths: DataPaths,
         clock: Arc<dyn Clock>,
         config: Config,
+        mistakes: MistakeBook,
         task_tx: mpsc::Sender<TaskMsg>,
         speaker: Arc<dyn Speaker>,
     ) -> Self {
@@ -79,6 +82,7 @@ impl App {
             task_tx,
             generate: None,
             config,
+            mistakes,
             delete_confirming: None,
             config_wizard: None,
             course_list: None,

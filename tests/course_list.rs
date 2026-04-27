@@ -57,6 +57,7 @@ fn make_app(paths: DataPaths, progress: Progress) -> App {
         paths,
         Arc::new(SystemClock),
         Config::default(),
+        inkworm::storage::mistakes::MistakeBook::empty(),
         task_tx,
         speaker,
     )

@@ -32,6 +32,7 @@ fn make_app(
         paths,
         Arc::new(SystemClock),
         cfg,
+        inkworm::storage::mistakes::MistakeBook::empty(),
         tx,
         speaker,
     );

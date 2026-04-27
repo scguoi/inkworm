@@ -62,6 +62,21 @@ fn main() -> anyhow::Result<()> {
 
     let progress = Progress::load(&paths.progress_file)?;
 
+    let mistakes = match inkworm::storage::mistakes::MistakeBook::load(&paths.mistakes_file) {
+        Ok(b) => b,
+        Err(e) => {
+            // Spec §6 row 2: rename corrupt file to .bak.{ts} and start empty.
+            let ts = chrono::Utc::now().format("%Y%m%d%H%M%S");
+            let bak = paths.root.join(format!("mistakes.json.bak.{ts}"));
+            let _ = std::fs::rename(&paths.mistakes_file, &bak);
+            eprintln!(
+                "mistakes: load failed ({e}); backed up to {} and starting empty",
+                bak.display()
+            );
+            inkworm::storage::mistakes::MistakeBook::empty()
+        }
+    };
+
     let course = progress
         .active_course_id
         .as_deref()
@@ -100,6 +115,7 @@ fn main() -> anyhow::Result<()> {
             paths,
             Arc::new(SystemClock),
             config,
+            mistakes,
             task_tx,
             speaker,
         );
