@@ -354,17 +354,34 @@ pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_vi
         .saturating_add(h_soundmark)
         .saturating_add(h_input)
         .saturating_add(h_reference);
-    let y_start = area.height.saturating_sub(total_h) / 2;
+
+    // When the area is too short for everything, clamp total_h so we
+    // anchor at the top instead of pushing into negative y_start. Each
+    // section's rendered height is then clipped to the remaining rows.
+    let displayable = total_h.min(area.height);
+    let y_start = area.height.saturating_sub(displayable) / 2;
+    let max_y = area.y.saturating_add(area.height);
+
+    let mut sections: Vec<(Paragraph, u16)> = vec![
+        (chinese, h_chinese),
+        (soundmark, h_soundmark),
+        (input_para, h_input),
+    ];
+    if let Some(rp) = reference_para {
+        sections.push((rp, h_reference));
+    }
 
     let mut y = area.y + y_start;
-    frame.render_widget(chinese, Rect::new(area.x + padding, y, cw, h_chinese));
-    y += h_chinese;
-    frame.render_widget(soundmark, Rect::new(area.x + padding, y, cw, h_soundmark));
-    y += h_soundmark;
-    frame.render_widget(input_para, Rect::new(area.x + padding, y, cw, h_input));
-    y += h_input;
-    if let Some(rp) = reference_para {
-        frame.render_widget(rp, Rect::new(area.x + padding, y, cw, h_reference));
+    for (para, want_h) in sections {
+        if y >= max_y {
+            break;
+        }
+        let h = want_h.min(max_y - y);
+        if h == 0 {
+            break;
+        }
+        frame.render_widget(para, Rect::new(area.x + padding, y, cw, h));
+        y += h;
     }
 }
 
