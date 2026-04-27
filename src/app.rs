@@ -720,7 +720,12 @@ impl App {
     pub fn render(&self, frame: &mut Frame) {
         match &self.screen {
             Screen::Study => {
-                crate::ui::study::render_study(frame, &self.study, self.cursor_visible);
+                crate::ui::study::render_study(
+                    frame,
+                    frame.area(),
+                    &self.study,
+                    self.cursor_visible,
+                );
                 if let Some(ref banner) = self.info_banner {
                     use ratatui::{
                         layout::Rect,
@@ -737,7 +742,12 @@ impl App {
                 }
             }
             Screen::Palette => {
-                crate::ui::study::render_study(frame, &self.study, self.cursor_visible);
+                crate::ui::study::render_study(
+                    frame,
+                    frame.area(),
+                    &self.study,
+                    self.cursor_visible,
+                );
                 if let Some(palette) = &self.palette {
                     crate::ui::palette::render_palette(frame, palette);
                 }
@@ -753,7 +763,12 @@ impl App {
                 }
             }
             Screen::DeleteConfirm => {
-                crate::ui::study::render_study(frame, &self.study, self.cursor_visible);
+                crate::ui::study::render_study(
+                    frame,
+                    frame.area(),
+                    &self.study,
+                    self.cursor_visible,
+                );
                 if let Some(ref title) = self.delete_confirming {
                     render_delete_confirm(frame, title);
                 }
@@ -768,13 +783,23 @@ impl App {
                 }
             }
             Screen::CourseList => {
-                crate::ui::study::render_study(frame, &self.study, self.cursor_visible);
+                crate::ui::study::render_study(
+                    frame,
+                    frame.area(),
+                    &self.study,
+                    self.cursor_visible,
+                );
                 if let Some(ref state) = self.course_list {
                     crate::ui::course_list::render_course_list(frame, state);
                 }
             }
             Screen::TtsStatus => {
-                crate::ui::study::render_study(frame, &self.study, self.cursor_visible);
+                crate::ui::study::render_study(
+                    frame,
+                    frame.area(),
+                    &self.study,
+                    self.cursor_visible,
+                );
                 let cache_stats = crate::tts::cache::cache_stats(&self.data_paths.tts_cache_dir);
                 let last_error = self
                     .last_tts_error
@@ -791,7 +816,12 @@ impl App {
                 );
             }
             Screen::Doctor => {
-                crate::ui::study::render_study(frame, &self.study, self.cursor_visible);
+                crate::ui::study::render_study(
+                    frame,
+                    frame.area(),
+                    &self.study,
+                    self.cursor_visible,
+                );
                 if let Some(ref results) = self.doctor_results {
                     crate::ui::doctor::render_doctor(frame, results);
                 }

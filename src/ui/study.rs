@@ -273,9 +273,7 @@ fn char_fold(c: char) -> char {
     }
 }
 
-pub fn render_study(frame: &mut Frame, state: &StudyState, cursor_visible: bool) {
-    let area = frame.area();
-
+pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_visible: bool) {
     match state.phase() {
         StudyPhase::Empty => {
             let msg = Paragraph::new("No active course. Press Ctrl+P → /import to create one.")
