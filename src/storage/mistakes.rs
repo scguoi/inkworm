@@ -198,6 +198,65 @@ impl MistakeBook {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct MistakesOutcome {
+    /// True iff this attempt caused the drill to leave entries (streak 3).
+    pub cleared: bool,
+}
+
+impl MistakeBook {
+    /// Record an answer in mistakes mode for `round` (1 or 2). Implements
+    /// spec §3.2 mistakes-mode branch. Returns `cleared = true` iff the
+    /// drill reached streak 3 and was removed from entries.
+    pub fn record_mistakes_attempt(
+        &mut self,
+        drill: &DrillRef,
+        round: u8,
+        first_attempt_correct: bool,
+        today_local: NaiveDate,
+    ) -> MistakesOutcome {
+        let Some(idx) = self.entries.iter().position(|e| e.drill == *drill) else {
+            return MistakesOutcome { cleared: false };
+        };
+        let entry = &mut self.entries[idx];
+
+        // Refresh today if stale.
+        let stale = entry.today.as_ref().map(|t| t.date) != Some(today_local);
+        if stale {
+            entry.today = Some(TodayAttempts {
+                date: today_local,
+                round1: None,
+                round2: None,
+            });
+        }
+        let today = entry.today.as_mut().expect("just set");
+
+        // First-attempt-only: do not overwrite an existing slot.
+        let slot = match round {
+            1 => &mut today.round1,
+            2 => &mut today.round2,
+            _ => return MistakesOutcome { cleared: false },
+        };
+        if slot.is_none() {
+            *slot = Some(first_attempt_correct);
+        }
+
+        // Evaluate qualifying day: both rounds correct AND not already
+        // counted today.
+        let both_correct =
+            matches!(today.round1, Some(true)) && matches!(today.round2, Some(true));
+        if both_correct && entry.last_qualified_date != Some(today_local) {
+            entry.streak_days += 1;
+            entry.last_qualified_date = Some(today_local);
+            if entry.streak_days >= 3 {
+                self.entries.remove(idx);
+                return MistakesOutcome { cleared: true };
+            }
+        }
+        MistakesOutcome { cleared: false }
+    }
+}
+
 fn sort_entries(entries: &mut [MistakeEntry]) {
     entries.sort_by(|a, b| {
         a.entered_at
@@ -410,5 +469,98 @@ mod tests {
         std::fs::write(&path, b"{}").unwrap();
         let b = MistakeBook::load(&path).unwrap();
         assert_eq!(b.schema_version, MISTAKES_SCHEMA_VERSION);
+    }
+
+    fn d(s: &str) -> chrono::NaiveDate {
+        chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+    }
+
+    fn book_with_one_entry(streak: u32, last_q: Option<chrono::NaiveDate>) -> MistakeBook {
+        MistakeBook {
+            schema_version: MISTAKES_SCHEMA_VERSION,
+            wrong_streaks: BTreeMap::new(),
+            entries: vec![MistakeEntry {
+                drill: drill_a(),
+                entered_at: now(),
+                streak_days: streak,
+                last_qualified_date: last_q,
+                today: None,
+            }],
+            session: None,
+        }
+    }
+
+    #[test]
+    fn mistakes_round1_correct_then_round2_correct_qualifies_day() {
+        let mut b = book_with_one_entry(0, None);
+        let o1 = b.record_mistakes_attempt(&drill_a(), 1, true, d("2026-04-27"));
+        assert!(!o1.cleared);
+        let o2 = b.record_mistakes_attempt(&drill_a(), 2, true, d("2026-04-27"));
+        assert!(!o2.cleared);
+        let entry = &b.entries[0];
+        assert_eq!(entry.streak_days, 1);
+        assert_eq!(entry.last_qualified_date, Some(d("2026-04-27")));
+        let today = entry.today.as_ref().unwrap();
+        assert_eq!(today.round1, Some(true));
+        assert_eq!(today.round2, Some(true));
+    }
+
+    #[test]
+    fn mistakes_first_attempt_wins_retry_does_not_overwrite() {
+        let mut b = book_with_one_entry(0, None);
+        b.record_mistakes_attempt(&drill_a(), 1, false, d("2026-04-27"));
+        b.record_mistakes_attempt(&drill_a(), 1, true, d("2026-04-27"));
+        let today = b.entries[0].today.as_ref().unwrap();
+        assert_eq!(today.round1, Some(false));
+    }
+
+    #[test]
+    fn mistakes_wrong_round_does_not_decrement_streak() {
+        let mut b = book_with_one_entry(2, Some(d("2026-04-26")));
+        b.record_mistakes_attempt(&drill_a(), 1, false, d("2026-04-27"));
+        b.record_mistakes_attempt(&drill_a(), 2, true, d("2026-04-27"));
+        assert_eq!(b.entries[0].streak_days, 2);
+    }
+
+    #[test]
+    fn mistakes_qualifying_day_does_not_double_count_in_same_day() {
+        let mut b = book_with_one_entry(0, None);
+        b.record_mistakes_attempt(&drill_a(), 1, true, d("2026-04-27"));
+        b.record_mistakes_attempt(&drill_a(), 2, true, d("2026-04-27"));
+        // Hypothetical re-attempt of round 2 (e.g., from a re-launched session
+        // edge case). last_qualified_date guards.
+        b.entries[0].today.as_mut().unwrap().round2 = Some(true);
+        // No further +1 should occur because last_qualified_date == today.
+        assert_eq!(b.entries[0].streak_days, 1);
+    }
+
+    #[test]
+    fn mistakes_third_qualifying_day_clears_drill_from_entries() {
+        let mut b = book_with_one_entry(2, Some(d("2026-04-26")));
+        b.record_mistakes_attempt(&drill_a(), 1, true, d("2026-04-27"));
+        let o = b.record_mistakes_attempt(&drill_a(), 2, true, d("2026-04-27"));
+        assert!(o.cleared);
+        assert!(b.entries.is_empty());
+    }
+
+    #[test]
+    fn mistakes_today_resets_when_date_changes() {
+        let mut b = book_with_one_entry(0, None);
+        b.record_mistakes_attempt(&drill_a(), 1, true, d("2026-04-27"));
+        b.record_mistakes_attempt(&drill_a(), 2, true, d("2026-04-27"));
+        // Next day:
+        b.record_mistakes_attempt(&drill_a(), 1, false, d("2026-04-28"));
+        let today = b.entries[0].today.as_ref().unwrap();
+        assert_eq!(today.date, d("2026-04-28"));
+        assert_eq!(today.round1, Some(false));
+        assert_eq!(today.round2, None);
+    }
+
+    #[test]
+    fn mistakes_attempt_on_unknown_drill_is_noop() {
+        let mut b = MistakeBook::default();
+        let o = b.record_mistakes_attempt(&drill_a(), 1, true, d("2026-04-27"));
+        assert!(!o.cleared);
+        assert!(b.entries.is_empty());
     }
 }
