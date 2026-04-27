@@ -109,7 +109,7 @@ pub struct SessionState {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum LoadError {
+pub enum MistakesError {
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
     #[error("json: {0}")]
@@ -117,14 +117,18 @@ pub enum LoadError {
 }
 
 impl MistakeBook {
-    pub fn load(path: &Path) -> Result<Self, LoadError> {
+    pub fn empty() -> Self {
+        Self {
+            schema_version: MISTAKES_SCHEMA_VERSION,
+            ..Self::default()
+        }
+    }
+
+    pub fn load(path: &Path) -> Result<Self, MistakesError> {
         let bytes = match std::fs::read(path) {
             Ok(b) => b,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Self {
-                    schema_version: MISTAKES_SCHEMA_VERSION,
-                    ..Self::default()
-                });
+                return Ok(Self::empty());
             }
             Err(e) => return Err(e.into()),
         };
@@ -135,7 +139,7 @@ impl MistakeBook {
         Ok(book)
     }
 
-    pub fn save(&self, path: &Path) -> Result<(), LoadError> {
+    pub fn save(&self, path: &Path) -> Result<(), MistakesError> {
         let bytes = serde_json::to_vec_pretty(self)?;
         write_atomic(path, &bytes)?;
         Ok(())
@@ -225,8 +229,7 @@ mod tests {
     fn save_then_load_preserves_state() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("mistakes.json");
-        let mut b = MistakeBook::default();
-        b.schema_version = MISTAKES_SCHEMA_VERSION;
+        let mut b = MistakeBook::empty();
         b.wrong_streaks.insert("course-x|1|1".into(), 1);
         b.save(&path).unwrap();
         let b2 = MistakeBook::load(&path).unwrap();
