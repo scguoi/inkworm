@@ -364,7 +364,13 @@ impl App {
             FeedbackState::Typing => match key.code {
                 KeyCode::Char(c) => self.study.type_char(c),
                 KeyCode::Backspace => self.study.backspace(),
-                KeyCode::Enter => self.study.submit(self.clock.as_ref()),
+                KeyCode::Enter => {
+                    if self.study.input().is_empty() {
+                        self.speak_current_drill();
+                    } else {
+                        self.study.submit(self.clock.as_ref());
+                    }
+                }
                 KeyCode::Tab => {
                     self.study.skip();
                     self.speak_current_drill();
