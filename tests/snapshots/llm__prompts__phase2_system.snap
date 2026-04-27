@@ -24,6 +24,10 @@ Rules:
 - The LAST drill MUST have focus="full" and its english MUST match the input english verbatim.
 - `stage` is 1-indexed and strictly increasing.
 - `chinese` is 1-200 chars. `english` is 1-50 words.
+- `chinese` MUST be idiomatic, native-feeling Chinese (NOT word-for-word from the english):
+  * Reorder freely so it reads naturally in Chinese; English-style postmodifier clauses become 的-phrases before the noun.
+  * Use the natural Chinese term, not the direct dictionary gloss. Examples: "emergent" → "涌现的" (NOT "出现的"); "tool-using" (modifier) → "会使用工具的" (NOT "工具使用"); "self-correcting" → "能自我修正的" (NOT "自我纠正").
+  * For partial drills (keywords / skeleton / clause), the chinese should be the natural Chinese rendering of the same partial idea — not a mechanical fragment.
 - `english` field REQUIREMENTS:
   * Plain English words and basic punctuation ONLY (letters, digits, spaces, `.,;:!?'"()-`)
   * NEVER include IPA symbols (ˈ ˌ ː ə ɒ ɜ ʌ ɪ ʊ ɛ ɔ ɑ æ θ ð ʃ ʒ ŋ, etc.) — those belong solely in `soundmark`

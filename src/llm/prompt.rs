@@ -22,7 +22,7 @@ Output ONLY JSON, no markdown fences, no commentary. Schema:
   "title":       "English string, 1-100 chars, a concise lesson title",
   "description": "Optional Chinese description, ≤300 chars (empty string allowed)",
   "sentences": [
-    {{ "chinese": "natural Chinese translation (1-200 chars)",
+    {{ "chinese": "idiomatic Chinese translation (1-200 chars)",
       "english": "sentence from the article, 5-30 words, self-contained, typable ASCII" }}
   ]
 }}
@@ -33,6 +33,15 @@ Rules:
 - Prioritize sentences with useful vocabulary and grammar patterns for this level.
 - If the article is long, pick the most instructive sentences; do NOT quote the whole article.
 - Each English sentence must be typable (ASCII letters, straight quotes, basic punctuation).
+- `chinese` MUST be idiomatic, native-feeling Chinese — NOT a word-for-word literal translation:
+  * Reorder constituents to match natural Chinese grammar (Chinese is modifier-before-noun; English often modifier-after-noun via clauses or "of"-phrases).
+  * Use the natural Chinese term for each concept, not the most direct dictionary gloss. Examples (avoid → prefer):
+    – "emergent" → "涌现的" (NOT "出现的")
+    – "tool-using" (modifier) → "会使用工具的" (NOT "工具使用")
+    – "self-correcting" → "自我修正的" or "能自我修正的" (NOT a noun phrase like "自我纠正")
+    – "goal-directed" → "以目标为导向的" or "面向目标的" (NOT "目标导向的" as a noun)
+  * If a clause modifies a noun in English (e.g. "the entity the user interacts with"), turn it into a 的-clause before the noun in Chinese (e.g. "用户与之交互的实体").
+  * Read your Chinese aloud — if it sounds like translation-ese, rewrite it.
 - Return JSON only.
 "#
     )
@@ -61,6 +70,10 @@ Rules:
 - The LAST drill MUST have focus="full" and its english MUST match the input english verbatim.
 - `stage` is 1-indexed and strictly increasing.
 - `chinese` is 1-200 chars. `english` is 1-50 words.
+- `chinese` MUST be idiomatic, native-feeling Chinese (NOT word-for-word from the english):
+  * Reorder freely so it reads naturally in Chinese; English-style postmodifier clauses become 的-phrases before the noun.
+  * Use the natural Chinese term, not the direct dictionary gloss. Examples: "emergent" → "涌现的" (NOT "出现的"); "tool-using" (modifier) → "会使用工具的" (NOT "工具使用"); "self-correcting" → "能自我修正的" (NOT "自我纠正").
+  * For partial drills (keywords / skeleton / clause), the chinese should be the natural Chinese rendering of the same partial idea — not a mechanical fragment.
 - `english` field REQUIREMENTS:
   * Plain English words and basic punctuation ONLY (letters, digits, spaces, `.,;:!?'"()-`)
   * NEVER include IPA symbols (ˈ ˌ ː ə ɒ ɜ ʌ ɪ ʊ ɛ ɔ ɑ æ θ ð ʃ ʒ ŋ, etc.) — those belong solely in `soundmark`
