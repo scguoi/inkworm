@@ -31,6 +31,7 @@ crossterm = { version = "0.28", features = ["event-stream"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"
+whoami = "1"
 
 # TTS core (Plan 6b): URL signing + cache key + WAV I/O
 hmac = "0.12"
