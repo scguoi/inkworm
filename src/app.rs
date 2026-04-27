@@ -778,7 +778,7 @@ impl App {
                     let para = Paragraph::new(Line::from(banner.as_str()))
                         .style(Style::default().fg(Color::Yellow))
                         .centered();
-                    frame.render_widget(para, Rect::new(0, y, inner.width, 1));
+                    frame.render_widget(para, Rect::new(inner.x, y, inner.width, 1));
                 }
             }
             Screen::Palette => {

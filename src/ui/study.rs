@@ -280,7 +280,7 @@ pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_vi
                 .style(Style::default().fg(Color::DarkGray))
                 .centered();
             let y = area.height / 2;
-            let rect = Rect::new(0, y, area.width, 1);
+            let rect = Rect::new(area.x, area.y + y, area.width, 1);
             frame.render_widget(msg, rect);
             return;
         }
@@ -289,12 +289,12 @@ pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_vi
             let complete_msg = Paragraph::new("Course complete!")
                 .style(Style::default().fg(Color::Green))
                 .centered();
-            frame.render_widget(complete_msg, Rect::new(0, y, area.width, 1));
+            frame.render_widget(complete_msg, Rect::new(area.x, area.y + y, area.width, 1));
             let hint =
                 Paragraph::new("Ctrl+P → /import to start a new course, or /list to switch.")
                     .style(Style::default().fg(Color::DarkGray))
                     .centered();
-            frame.render_widget(hint, Rect::new(0, y + 2, area.width, 1));
+            frame.render_widget(hint, Rect::new(area.x, area.y + y + 2, area.width, 1));
             return;
         }
         StudyPhase::Active => {}
@@ -315,7 +315,10 @@ pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_vi
 
     // Line 1: Chinese
     let chinese = Paragraph::new(drill.chinese.as_str()).style(Style::default().fg(Color::White));
-    frame.render_widget(chinese, Rect::new(padding, y_start, content_width, 1));
+    frame.render_widget(
+        chinese,
+        Rect::new(area.x + padding, area.y + y_start, content_width, 1),
+    );
 
     // Line 2: Soundmark
     let soundmark_text = if drill.soundmark.is_empty() {
@@ -332,7 +335,10 @@ pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_vi
         }
     };
     let soundmark = Paragraph::new(soundmark_text).style(Style::default().fg(Color::DarkGray));
-    frame.render_widget(soundmark, Rect::new(padding, y_start + 1, content_width, 1));
+    frame.render_widget(
+        soundmark,
+        Rect::new(area.x + padding, area.y + y_start + 1, content_width, 1),
+    );
 
     // Line 3: Input with skeleton
     let skel = skeleton(&drill.english);
@@ -341,7 +347,7 @@ pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_vi
     let input_para = Paragraph::new(input_line);
     frame.render_widget(
         input_para,
-        Rect::new(padding, y_start + 2, content_width, 1),
+        Rect::new(area.x + padding, area.y + y_start + 2, content_width, 1),
     );
 
     // Line 4 (only when wrong): Reference answer
@@ -353,7 +359,7 @@ pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_vi
         let reference_para = Paragraph::new(reference_line);
         frame.render_widget(
             reference_para,
-            Rect::new(padding, y_start + 3, content_width, 1),
+            Rect::new(area.x + padding, area.y + y_start + 3, content_width, 1),
         );
     }
 }
