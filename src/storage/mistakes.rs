@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 pub const MISTAKES_SCHEMA_VERSION: u32 = 1;
 
 /// Reference to one drill within one course.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct DrillRef {
     #[serde(rename = "courseId")]
     pub course_id: String,
@@ -30,6 +30,9 @@ pub struct DrillRef {
 /// Course ids are kebab-case (no `|`), so this is unambiguous.
 pub type DrillKey = String;
 
+/// Build the BTreeMap key for `wrong_streaks` lookups. Uses `|` as
+/// separator since course ids are kebab-case (no `|`), so the key is
+/// unambiguously parseable back into its three components if needed.
 pub fn drill_key(d: &DrillRef) -> DrillKey {
     format!("{}|{}|{}", d.course_id, d.sentence_order, d.drill_stage)
 }
@@ -76,6 +79,7 @@ pub struct TodayAttempts {
     /// First-attempt verdict in round 1 today; None until attempted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub round1: Option<bool>,
+    /// First-attempt verdict in round 2 today; None until attempted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub round2: Option<bool>,
 }
