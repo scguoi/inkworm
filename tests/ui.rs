@@ -40,7 +40,7 @@ fn wrong_then_correct_flow() {
         state.type_char(c);
     }
     state.submit(&clk);
-    assert!(matches!(*state.feedback(), FeedbackState::Wrong { .. }));
+    assert_eq!(*state.feedback(), FeedbackState::Wrong);
 
     while !state.input().is_empty() {
         state.backspace();

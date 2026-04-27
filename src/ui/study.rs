@@ -21,7 +21,7 @@ pub const AUTO_ADVANCE_DELAY_MS: i64 = 500;
 pub enum FeedbackState {
     Typing,
     Correct,
-    Wrong { diff_index: usize },
+    Wrong,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -162,8 +162,7 @@ impl StudyState {
             self.feedback = FeedbackState::Correct;
             self.correct_at = Some(clock.now());
         } else {
-            let diff_index = find_first_diff(&self.input, &drill.english);
-            self.feedback = FeedbackState::Wrong { diff_index };
+            self.feedback = FeedbackState::Wrong;
         }
     }
 
@@ -250,20 +249,8 @@ impl StudyState {
     }
 }
 
-fn find_first_diff(input: &str, reference: &str) -> usize {
-    let input_chars: Vec<char> = input.chars().collect();
-    let ref_chars: Vec<char> = reference.chars().collect();
-    for (i, rc) in ref_chars.iter().enumerate() {
-        match input_chars.get(i) {
-            Some(ic) if char_fold(*ic) == char_fold(*rc) => continue,
-            _ => return i,
-        }
-    }
-    ref_chars.len()
-}
-
 /// Per-character normalization matching `judge::normalize`'s character-level
-/// rules (case folding + curly-quote folding), so the highlighted diff index
+/// rules (case folding + curly-quote folding), so the highlighted diff
 /// agrees with `judge::equals`'s verdict.
 fn char_fold(c: char) -> char {
     match c {
@@ -307,7 +294,7 @@ pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_vi
 
     // Always reserve 4 lines to prevent layout shift when showing reference answer
     let block_height = 4u16;
-    let is_wrong = matches!(state.feedback(), FeedbackState::Wrong { .. });
+    let is_wrong = matches!(state.feedback(), FeedbackState::Wrong);
     let y_start = area.height.saturating_sub(block_height) / 2;
     let padding = 5u16.min(area.width / 10);
 
@@ -343,7 +330,13 @@ pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_vi
     // Line 3: Input with skeleton
     let skel = skeleton(&drill.english);
     let input = state.input();
-    let input_line = build_input_line(input, &skel, state.feedback(), cursor_visible);
+    let input_line = build_input_line(
+        input,
+        &drill.english,
+        &skel,
+        state.feedback(),
+        cursor_visible,
+    );
     let input_para = Paragraph::new(input_line);
     frame.render_widget(
         input_para,
@@ -366,6 +359,7 @@ pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_vi
 
 fn build_input_line<'a>(
     input: &str,
+    reference: &str,
     skel: &str,
     feedback: &FeedbackState,
     cursor_visible: bool,
@@ -382,22 +376,17 @@ fn build_input_line<'a>(
                 Style::default().fg(Color::Green),
             ));
         }
-        FeedbackState::Wrong { diff_index } => {
-            // Typed portion up to diff
-            let before: String = input_chars[..*diff_index.min(&input_chars.len())]
-                .iter()
-                .collect();
-            spans.push(Span::styled(before, Style::default().fg(Color::White)));
-            // Diff char
-            if *diff_index < input_chars.len() {
-                spans.push(Span::styled(
-                    input_chars[*diff_index].to_string(),
-                    Style::default().fg(Color::Red),
-                ));
-                let after: String = input_chars[diff_index + 1..].iter().collect();
-                if !after.is_empty() {
-                    spans.push(Span::styled(after, Style::default().fg(Color::White)));
-                }
+        FeedbackState::Wrong => {
+            // Per-char diff: red for any input char that doesn't match the
+            // reference at the same position (case- and curly-quote-folded);
+            // white for matches.
+            let ref_chars: Vec<char> = reference.chars().collect();
+            for (i, c) in input_chars.iter().enumerate() {
+                let is_match = ref_chars
+                    .get(i)
+                    .is_some_and(|r| char_fold(*c) == char_fold(*r));
+                let color = if is_match { Color::White } else { Color::Red };
+                spans.push(Span::styled(c.to_string(), Style::default().fg(color)));
             }
         }
         FeedbackState::Typing => {
@@ -528,22 +517,19 @@ mod tests {
         // Wrong state — also never auto-advances.
         state.type_char('X');
         state.submit(&clk);
-        assert!(matches!(*state.feedback(), FeedbackState::Wrong { .. }));
+        assert_eq!(*state.feedback(), FeedbackState::Wrong);
         assert!(!state.auto_advance_if_due(clk.0 + chrono::Duration::seconds(5)));
     }
 
     #[test]
-    fn wrong_answer_shows_diff() {
+    fn wrong_answer_enters_wrong_state() {
         let clk = clock();
         let mut state = StudyState::new(Some(fixture_course()), Progress::empty());
         for c in "AI think".chars() {
             state.type_char(c);
         }
         state.submit(&clk);
-        assert!(matches!(
-            *state.feedback(),
-            FeedbackState::Wrong { diff_index: 8 }
-        ));
+        assert_eq!(*state.feedback(), FeedbackState::Wrong);
     }
 
     #[test]
@@ -617,15 +603,68 @@ mod tests {
     }
 
     #[test]
-    fn find_first_diff_cases() {
-        assert_eq!(find_first_diff("hello", "hello"), 5);
-        assert_eq!(find_first_diff("helo", "hello"), 3);
-        assert_eq!(find_first_diff("", "hello"), 0);
-        assert_eq!(find_first_diff("hello world", "hello"), 5);
-        // Case mismatch alone is not a diff — `judge::equals` treats it as equal.
-        assert_eq!(find_first_diff("Hello", "hello"), 5);
-        assert_eq!(find_first_diff("you triggle", "You trigger"), 9);
-        // Curly quote folds to straight — no diff.
-        assert_eq!(find_first_diff("I\u{2019}ve", "I've"), 4);
+    fn wrong_input_marks_each_mismatch_red() {
+        let line = build_input_line(
+            "entrenious",
+            "extraneous",
+            "__________",
+            &FeedbackState::Wrong,
+            false,
+        );
+        // Skip the leading `> ` prefix span, then expect one span per input char.
+        let chars_and_colors: Vec<(String, Option<Color>)> = line
+            .spans
+            .iter()
+            .skip(1)
+            .map(|s| (s.content.to_string(), s.style.fg))
+            .collect();
+        let red = Some(Color::Red);
+        let white = Some(Color::White);
+        assert_eq!(
+            chars_and_colors,
+            vec![
+                ("e".to_string(), white),
+                ("n".to_string(), red),
+                ("t".to_string(), white),
+                ("r".to_string(), white),
+                ("e".to_string(), red),
+                ("n".to_string(), white),
+                ("i".to_string(), red),
+                ("o".to_string(), white),
+                ("u".to_string(), white),
+                ("s".to_string(), white),
+            ]
+        );
+    }
+
+    #[test]
+    fn wrong_input_extra_chars_are_red() {
+        // Input is longer than reference: trailing chars have no match, all red.
+        let line = build_input_line("hello!!", "hello", "_____", &FeedbackState::Wrong, false);
+        let after_prefix: Vec<Option<Color>> =
+            line.spans.iter().skip(1).map(|s| s.style.fg).collect();
+        assert_eq!(
+            after_prefix,
+            vec![
+                Some(Color::White),
+                Some(Color::White),
+                Some(Color::White),
+                Some(Color::White),
+                Some(Color::White),
+                Some(Color::Red),
+                Some(Color::Red),
+            ]
+        );
+    }
+
+    #[test]
+    fn wrong_input_case_only_diff_is_not_red() {
+        // judge::equals folds case, so "Hello" vs "hello" wouldn't enter Wrong
+        // in real flow — but the renderer should still treat case-only diffs
+        // as matches if asked.
+        let line = build_input_line("Hello", "hello", "_____", &FeedbackState::Wrong, false);
+        let after_prefix: Vec<Option<Color>> =
+            line.spans.iter().skip(1).map(|s| s.style.fg).collect();
+        assert!(after_prefix.iter().all(|c| *c == Some(Color::White)));
     }
 }

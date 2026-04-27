@@ -356,7 +356,7 @@ impl App {
                 self.study.advance();
                 self.speak_current_drill();
             }
-            FeedbackState::Wrong { .. } => {
+            FeedbackState::Wrong => {
                 // Any key press clears input and restarts
                 self.study.clear_and_restart();
                 self.speak_current_drill();
