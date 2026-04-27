@@ -9,9 +9,12 @@
 //! See spec: docs/superpowers/specs/2026-04-27-inkworm-mistakes-design.md
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
+
+use crate::storage::atomic::write_atomic;
 
 pub const MISTAKES_SCHEMA_VERSION: u32 = 1;
 
@@ -39,7 +42,7 @@ pub fn drill_key(d: &DrillRef) -> DrillKey {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct MistakeBook {
-    #[serde(rename = "schemaVersion")]
+    #[serde(rename = "schemaVersion", default)]
     pub schema_version: u32,
     /// Lazy: only contains drills currently between "1 wrong" and either
     /// "next correct" (cleared) or "second wrong" (promoted to entries).
@@ -103,6 +106,40 @@ pub struct SessionState {
     /// appended drills can still earn round1 results today.
     #[serde(rename = "round1Completed", default)]
     pub round1_completed: bool,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum LoadError {
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("json: {0}")]
+    Json(#[from] serde_json::Error),
+}
+
+impl MistakeBook {
+    pub fn load(path: &Path) -> Result<Self, LoadError> {
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Self {
+                    schema_version: MISTAKES_SCHEMA_VERSION,
+                    ..Self::default()
+                });
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let mut book: MistakeBook = serde_json::from_slice(&bytes)?;
+        if book.schema_version == 0 {
+            book.schema_version = MISTAKES_SCHEMA_VERSION;
+        }
+        Ok(book)
+    }
+
+    pub fn save(&self, path: &Path) -> Result<(), LoadError> {
+        let bytes = serde_json::to_vec_pretty(self)?;
+        write_atomic(path, &bytes)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -171,5 +208,37 @@ mod tests {
         assert!(json.contains(r#""currentRound":"#));
         assert!(json.contains(r#""nextIndex":"#));
         assert!(json.contains(r#""round1Completed":"#));
+    }
+
+    #[test]
+    fn load_missing_returns_empty_book() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mistakes.json");
+        let b = MistakeBook::load(&path).unwrap();
+        assert_eq!(b.schema_version, MISTAKES_SCHEMA_VERSION);
+        assert!(b.entries.is_empty());
+        assert!(b.wrong_streaks.is_empty());
+        assert!(b.session.is_none());
+    }
+
+    #[test]
+    fn save_then_load_preserves_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mistakes.json");
+        let mut b = MistakeBook::default();
+        b.schema_version = MISTAKES_SCHEMA_VERSION;
+        b.wrong_streaks.insert("course-x|1|1".into(), 1);
+        b.save(&path).unwrap();
+        let b2 = MistakeBook::load(&path).unwrap();
+        assert_eq!(b, b2);
+    }
+
+    #[test]
+    fn load_upgrades_zero_schema_version_to_current() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mistakes.json");
+        std::fs::write(&path, b"{}").unwrap();
+        let b = MistakeBook::load(&path).unwrap();
+        assert_eq!(b.schema_version, MISTAKES_SCHEMA_VERSION);
     }
 }
