@@ -6,7 +6,7 @@ use crate::ui::skeleton::skeleton;
 use chrono::{DateTime, Utc};
 use ratatui::{
     layout::Rect,
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
     Frame,
@@ -301,8 +301,11 @@ pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_vi
     let content_width = area.width.saturating_sub(padding * 2);
 
     // Line 1: Chinese
-    let chinese =
-        Paragraph::new(drill.chinese.as_str()).style(Style::default().fg(Color::DarkGray));
+    let chinese = Paragraph::new(drill.chinese.as_str()).style(
+        Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::CROSSED_OUT),
+    );
     frame.render_widget(
         chinese,
         Rect::new(area.x + padding, area.y + y_start, content_width, 1),
