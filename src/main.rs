@@ -67,9 +67,13 @@ fn main() -> anyhow::Result<()> {
         Err(e) => {
             // Spec §6 row 2: rename corrupt file to .bak.{ts} and start empty.
             let ts = chrono::Utc::now().format("%Y%m%d%H%M%S");
-            let bak = paths.root.join(format!("mistakes.json.bak.{ts}"));
+            let bak = paths.mistakes_file.with_file_name(format!("mistakes.json.bak.{ts}"));
             let _ = std::fs::rename(&paths.mistakes_file, &bak);
             eprintln!(
+                "mistakes: load failed ({e}); backed up to {} and starting empty",
+                bak.display()
+            );
+            tracing::warn!(
                 "mistakes: load failed ({e}); backed up to {} and starting empty",
                 bak.display()
             );
