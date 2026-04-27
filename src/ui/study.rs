@@ -350,16 +350,9 @@ pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_vi
         .map(|p| p.line_count(cw) as u16)
         .unwrap_or(0);
 
-    let total_h = h_chinese
-        .saturating_add(h_soundmark)
-        .saturating_add(h_input)
-        .saturating_add(h_reference);
-
-    // When the area is too short for everything, clamp total_h so we
-    // anchor at the top instead of pushing into negative y_start. Each
-    // section's rendered height is then clipped to the remaining rows.
-    let displayable = total_h.min(area.height);
-    let y_start = area.height.saturating_sub(displayable) / 2;
+    // Top-align the block; any blank rows go below the input. Each
+    // section's rendered height is clipped to the remaining rows so a
+    // tall block in a short area never writes past `area`.
     let max_y = area.y.saturating_add(area.height);
 
     let mut sections: Vec<(Paragraph, u16)> = vec![
@@ -371,7 +364,7 @@ pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_vi
         sections.push((rp, h_reference));
     }
 
-    let mut y = area.y + y_start;
+    let mut y = area.y;
     for (para, want_h) in sections {
         if y >= max_y {
             break;
