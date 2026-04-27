@@ -363,6 +363,42 @@ pub struct SessionProgress {
 }
 
 impl MistakeBook {
+    /// Drop entries pointing at courses/sentences/stages that no longer
+    /// exist. `provider` returns the Course for an id, or None if missing.
+    pub fn prune_orphans<'a, F>(&mut self, mut provider: F)
+    where
+        F: FnMut(&str) -> Option<&'a crate::storage::course::Course>,
+    {
+        self.entries.retain(|e| {
+            let Some(course) = provider(&e.drill.course_id) else {
+                return false;
+            };
+            let Some(sentence) = course
+                .sentences
+                .iter()
+                .find(|s| s.order == e.drill.sentence_order)
+            else {
+                return false;
+            };
+            sentence.drills.iter().any(|d| d.stage == e.drill.drill_stage)
+        });
+        // Also prune session queue: any drill whose entry is gone is now an
+        // orphan. Use the same clean 2-pass retain pattern as `purge_course`.
+        let live: std::collections::HashSet<DrillKey> =
+            self.entries.iter().map(|e| drill_key(&e.drill)).collect();
+        if let Some(session) = self.session.as_mut() {
+            let shift_next = session.queue[..session.next_index]
+                .iter()
+                .filter(|d| !live.contains(&drill_key(d)))
+                .count();
+            session.next_index -= shift_next;
+            session.queue.retain(|d| live.contains(&drill_key(d)));
+            if session.queue.is_empty() {
+                self.session = None;
+            }
+        }
+    }
+
     /// Remove all traces of `course_id` from the book. Adjusts session
     /// queue and `next_index`; clears session if the queue is exhausted.
     pub fn purge_course(&mut self, course_id: &str) {
@@ -849,5 +885,48 @@ mod tests {
         });
         b.purge_course("course-a");
         assert!(b.session.is_none());
+    }
+
+    #[test]
+    fn prune_orphans_drops_entries_for_unknown_courses_or_stages() {
+        use crate::storage::course::{Course, Drill, Focus, Sentence, Source, SourceKind};
+
+        let course = Course {
+            schema_version: 2,
+            id: "course-a".into(),
+            title: "t".into(),
+            description: None,
+            source: Source {
+                kind: SourceKind::Manual,
+                url: String::new(),
+                created_at: now(),
+                model: "m".into(),
+            },
+            sentences: vec![Sentence {
+                order: 1,
+                drills: vec![Drill {
+                    stage: 2,
+                    focus: Focus::Full,
+                    chinese: "x".into(),
+                    english: "x".into(),
+                    soundmark: String::new(),
+                }],
+            }],
+        };
+        let mut b = MistakeBook::default();
+        b.entries.push(entry_for(drill_a(), now())); // course-a / s1 / d2 → exists
+        b.entries.push(entry_for(drill_b(), now())); // course-b → unknown course
+        b.entries.push(entry_for(
+            DrillRef {
+                course_id: "course-a".into(),
+                sentence_order: 1,
+                drill_stage: 99, // unknown stage
+            },
+            now(),
+        ));
+
+        b.prune_orphans(|id| if id == "course-a" { Some(&course) } else { None });
+        assert_eq!(b.entries.len(), 1);
+        assert_eq!(b.entries[0].drill, drill_a());
     }
 }
