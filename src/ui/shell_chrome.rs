@@ -43,9 +43,79 @@ fn truncate_cwd(cwd: &str, max: usize) -> String {
 }
 
 use ratatui::{
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
 };
+
+const RIGHT_HINTS: &str = "^P menu  ^C quit";
+
+/// Build a single Line filling `width` cells with reverse-video styling.
+/// Left segment carries course id + progress; right segment carries key
+/// hints. Degrades gracefully when narrow:
+/// 1) drop course_id, 2) drop sentence/drill detail, 3) drop right.
+pub fn build_status_line(
+    width: u16,
+    course_id: Option<&str>,
+    summary: Option<ProgressSummary>,
+) -> Line<'static> {
+    let style = Style::default().add_modifier(Modifier::REVERSED);
+    let width = width as usize;
+    if width == 0 {
+        return Line::from(vec![]);
+    }
+
+    let right_len = RIGHT_HINTS.chars().count();
+
+    // Build candidate left strings, longest first (non-empty only).
+    let mut left_candidates: Vec<String> = Vec::new();
+    if let Some(s) = &summary {
+        let progress = format!(
+            "{}% · {}/{} · {}/{}",
+            s.pct, s.sentence.0, s.sentence.1, s.drill.0, s.drill.1
+        );
+        if let Some(id) = course_id {
+            left_candidates.push(format!("{} · {}", id, progress));
+        }
+        left_candidates.push(progress);
+        left_candidates.push(format!("{}%", s.pct));
+    }
+
+    // Pass 1: try each left candidate WITH right hints (at least 2 spaces between).
+    for left in &left_candidates {
+        let left_len = left.chars().count();
+        if left_len + 2 + right_len <= width {
+            let pad = width - left_len - right_len;
+            return Line::from(vec![Span::styled(
+                format!("{}{}{}", left, " ".repeat(pad), RIGHT_HINTS),
+                style,
+            )]);
+        }
+    }
+
+    // Pass 2: no left candidate fits with right. Drop right, take longest left alone.
+    for left in &left_candidates {
+        let left_len = left.chars().count();
+        if left_len <= width {
+            let pad = width - left_len;
+            return Line::from(vec![Span::styled(
+                format!("{}{}", left, " ".repeat(pad)),
+                style,
+            )]);
+        }
+    }
+
+    // Pass 3: no left candidate fits. Show right hints alone if there's room.
+    if 2 + right_len <= width {
+        let pad = width - right_len;
+        return Line::from(vec![Span::styled(
+            format!("{}{}", " ".repeat(pad), RIGHT_HINTS),
+            style,
+        )]);
+    }
+
+    // Nothing fits at all. Fill with reversed spaces.
+    Line::from(vec![Span::styled(" ".repeat(width), style)])
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProgressSummary {
@@ -325,5 +395,69 @@ mod tests {
         let h = header_fixture();
         let _ = h.render(5);
         let _ = h.render(0);
+    }
+
+    fn sample_summary() -> ProgressSummary {
+        ProgressSummary {
+            pct: 38,
+            sentence: (3, 8),
+            drill: (2, 6),
+        }
+    }
+
+    fn line_text(line: &Line<'_>) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn status_bar_full_layout_at_wide_width() {
+        let line = build_status_line(80, Some("ted-ai"), Some(sample_summary()));
+        let text = line_text(&line);
+        assert!(text.starts_with("ted-ai · 38% · 3/8 · 2/6"));
+        assert!(text.trim_end().ends_with("^P menu  ^C quit"));
+        assert_eq!(text.chars().count(), 80);
+    }
+
+    #[test]
+    fn status_bar_drops_course_id_when_narrow() {
+        // Width small enough to drop course_id but keep numbers + right.
+        let line = build_status_line(40, Some("ted-ai"), Some(sample_summary()));
+        let text = line_text(&line);
+        assert!(!text.contains("ted-ai"));
+        assert!(text.contains("38% · 3/8 · 2/6"));
+        assert!(text.contains("^P menu  ^C quit"));
+    }
+
+    #[test]
+    fn status_bar_keeps_only_pct_when_very_narrow() {
+        let line = build_status_line(20, Some("ted-ai"), Some(sample_summary()));
+        let text = line_text(&line);
+        assert!(text.contains("38%"));
+        // Can't promise more.
+    }
+
+    #[test]
+    fn status_bar_drops_right_when_extremely_narrow() {
+        let line = build_status_line(6, Some("ted-ai"), Some(sample_summary()));
+        let text = line_text(&line);
+        assert!(text.contains("38%"));
+        assert!(!text.contains("^P"));
+    }
+
+    #[test]
+    fn status_bar_empty_phase_shows_only_right() {
+        let line = build_status_line(80, None, None);
+        let text = line_text(&line);
+        assert!(text.trim_end().ends_with("^P menu  ^C quit"));
+        assert!(!text.contains("%"));
+    }
+
+    #[test]
+    fn status_bar_uses_reverse_video() {
+        use ratatui::style::Modifier;
+        let line = build_status_line(80, Some("ted-ai"), Some(sample_summary()));
+        for span in &line.spans {
+            assert!(span.style.add_modifier.contains(Modifier::REVERSED));
+        }
     }
 }
