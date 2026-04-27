@@ -58,7 +58,11 @@ pub struct StudyState {
     mode: StudyMode,
     /// True until the FIRST submit() for the current drill-visit (not the
     /// drill itself: visiting same drill twice in mistakes mode counts as
-    /// two visits). Reset by next_drill / clear_and_restart.
+    /// two visits). Reset by `next_drill` only. `clear_and_restart` and
+    /// `delete_to_line_start` deliberately do NOT reset it: they are
+    /// invoked AFTER a verdict has been emitted (Wrong feedback or
+    /// Cmd+Backspace post-submit) — the first-attempt outcome already
+    /// went out, retries should not produce a second one.
     first_attempt_pending: bool,
 }
 
@@ -764,6 +768,20 @@ mod tests {
         // mastered_count still updated for Course mode.
         let dp = &state.progress().courses["2026-04-21-ted-ai"].sentences["1"].drills["1"];
         assert_eq!(dp.mastered_count, 1);
+    }
+
+    #[test]
+    fn mistakes_mode_correct_does_not_update_mastered_count() {
+        let clk = clock();
+        let mut state = StudyState::new(Some(fixture_course()), Progress::empty());
+        state.set_mode(StudyMode::Mistakes);
+        for c in "AI think day".chars() {
+            state.type_char(c);
+        }
+        state.submit(&clk);
+        assert_eq!(*state.feedback(), FeedbackState::Correct);
+        // Mastered count must NOT have been updated in mistakes mode.
+        assert!(state.progress().courses.is_empty());
     }
 
     #[test]
