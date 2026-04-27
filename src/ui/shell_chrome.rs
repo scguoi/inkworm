@@ -217,12 +217,10 @@ impl ShellHeader {
             truncate_cwd(&self.cwd, cwd_budget)
         };
 
+        let green = Style::default().fg(Color::Green);
         Line::from(vec![
-            Span::styled(self.user.clone(), Style::default().fg(Color::Green)),
-            Span::styled(
-                format!("@{} ", self.host),
-                Style::default().fg(Color::DarkGray),
-            ),
+            Span::styled(self.user.clone(), green),
+            Span::styled(format!("@{} ", self.host), green),
             Span::styled(cwd_disp, Style::default().fg(Color::Blue)),
             Span::styled(" $ ", Style::default().fg(Color::Yellow)),
         ])
@@ -392,7 +390,7 @@ mod tests {
         assert_eq!(line.spans[0].content.as_ref(), "scguo");
         assert_eq!(line.spans[0].style.fg, Some(Color::Green));
         assert_eq!(line.spans[1].content.as_ref(), "@MacBook-Pro ");
-        assert_eq!(line.spans[1].style.fg, Some(Color::DarkGray));
+        assert_eq!(line.spans[1].style.fg, Some(Color::Green));
         assert_eq!(
             line.spans[2].content.as_ref(),
             "~/.tries/2026-04-21-scguoi/inkworm"
