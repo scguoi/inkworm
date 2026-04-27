@@ -1,5 +1,5 @@
-//! Shell-style chrome around the study screen: top prompt header and
-//! bottom reverse-video status bar.
+//! Shell-style chrome around the study screen: top prompt header
+//! (oh-my-zsh-style colors) and a dim status bar at the bottom.
 
 use crate::storage::course::Course;
 use crate::storage::progress::Progress;
@@ -43,13 +43,13 @@ fn truncate_cwd(cwd: &str, max: usize) -> String {
 }
 
 use ratatui::{
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
 };
 
 const RIGHT_HINTS: &str = "^P menu  ^C quit";
 
-/// Build a single Line filling `width` cells with reverse-video styling.
+/// Build a single Line filling `width` cells with dim text.
 /// Left segment carries course id + progress; right segment carries key
 /// hints. Degrades gracefully when narrow:
 /// 1) drop course_id, 2) drop sentence/drill detail, 3) drop right.
@@ -58,7 +58,7 @@ pub fn build_status_line(
     course_id: Option<&str>,
     summary: Option<ProgressSummary>,
 ) -> Line<'static> {
-    let style = Style::default().add_modifier(Modifier::REVERSED);
+    let style = Style::default().fg(Color::DarkGray);
     let width = width as usize;
     if width == 0 {
         return Line::from(vec![]);
@@ -113,7 +113,7 @@ pub fn build_status_line(
         )]);
     }
 
-    // Nothing fits at all. Fill with reversed spaces.
+    // Nothing fits at all. Fill with blank spaces.
     Line::from(vec![Span::styled(" ".repeat(width), style)])
 }
 
@@ -203,12 +203,11 @@ impl ShellHeader {
         Self { user, host, cwd }
     }
 
-    /// Build a Line that fits within `width` columns.
+    /// Build a Line that fits within `width` columns, styled like an
+    /// oh-my-zsh prompt: green user, dark `@host`, blue cwd, yellow `$`.
     pub fn render(&self, width: u16) -> Line<'static> {
-        let prefix = format!("{}@{} ", self.user, self.host);
-        let suffix = " $ ";
-        let prefix_len = prefix.chars().count();
-        let suffix_len = suffix.chars().count();
+        let prefix_len = self.user.chars().count() + 1 + self.host.chars().count() + 1;
+        let suffix_len = 3; // " $ "
         let width = width as usize;
 
         let cwd_disp = if prefix_len + self.cwd.chars().count() + suffix_len <= width {
@@ -218,11 +217,15 @@ impl ShellHeader {
             truncate_cwd(&self.cwd, cwd_budget)
         };
 
-        let style = Style::default().fg(Color::DarkGray);
-        Line::from(vec![Span::styled(
-            format!("{}{}{}", prefix, cwd_disp, suffix),
-            style,
-        )])
+        Line::from(vec![
+            Span::styled(self.user.clone(), Style::default().fg(Color::Green)),
+            Span::styled(
+                format!("@{} ", self.host),
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::styled(cwd_disp, Style::default().fg(Color::Blue)),
+            Span::styled(" $ ", Style::default().fg(Color::Yellow)),
+        ])
     }
 }
 
@@ -382,12 +385,21 @@ mod tests {
     }
 
     #[test]
-    fn header_uses_dark_gray() {
+    fn header_uses_oh_my_zsh_palette() {
         let h = header_fixture();
         let line = h.render(200);
-        for span in &line.spans {
-            assert_eq!(span.style.fg, Some(Color::DarkGray));
-        }
+        // Spans: user, @host, cwd, " $ "
+        assert_eq!(line.spans[0].content.as_ref(), "scguo");
+        assert_eq!(line.spans[0].style.fg, Some(Color::Green));
+        assert_eq!(line.spans[1].content.as_ref(), "@MacBook-Pro ");
+        assert_eq!(line.spans[1].style.fg, Some(Color::DarkGray));
+        assert_eq!(
+            line.spans[2].content.as_ref(),
+            "~/.tries/2026-04-21-scguoi/inkworm"
+        );
+        assert_eq!(line.spans[2].style.fg, Some(Color::Blue));
+        assert_eq!(line.spans[3].content.as_ref(), " $ ");
+        assert_eq!(line.spans[3].style.fg, Some(Color::Yellow));
     }
 
     #[test]
@@ -453,11 +465,10 @@ mod tests {
     }
 
     #[test]
-    fn status_bar_uses_reverse_video() {
-        use ratatui::style::Modifier;
+    fn status_bar_uses_dark_gray() {
         let line = build_status_line(80, Some("ted-ai"), Some(sample_summary()));
         for span in &line.spans {
-            assert!(span.style.add_modifier.contains(Modifier::REVERSED));
+            assert_eq!(span.style.fg, Some(Color::DarkGray));
         }
     }
 
