@@ -293,8 +293,7 @@ pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_vi
     };
 
     let is_wrong = matches!(state.feedback(), FeedbackState::Wrong);
-    let padding = 5u16.min(area.width / 10);
-    let content_width = area.width.saturating_sub(padding * 2);
+    let content_width = area.width;
     if content_width == 0 {
         return;
     }
@@ -373,7 +372,7 @@ pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_vi
         if h == 0 {
             break;
         }
-        frame.render_widget(para, Rect::new(area.x + padding, y, cw, h));
+        frame.render_widget(para, Rect::new(area.x, y, cw, h));
         y += h;
     }
 }
