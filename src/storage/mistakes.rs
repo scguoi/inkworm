@@ -369,6 +369,13 @@ impl MistakeBook {
     where
         F: FnMut(&str) -> Option<&'a crate::storage::course::Course>,
     {
+        // Drop wrong_streaks for courses that no longer exist. Granularity matches
+        // purge_course (course-level): a wrong_streaks key whose course_id has no
+        // provider entry is a ghost, drop it.
+        self.wrong_streaks.retain(|k, _| {
+            let course_id = k.split('|').next().unwrap_or("");
+            provider(course_id).is_some()
+        });
         self.entries.retain(|e| {
             let Some(course) = provider(&e.drill.course_id) else {
                 return false;
@@ -384,6 +391,8 @@ impl MistakeBook {
         });
         // Also prune session queue: any drill whose entry is gone is now an
         // orphan. Use the same clean 2-pass retain pattern as `purge_course`.
+        // Build live set before the if-let to avoid simultaneous borrow of
+        // self.entries (shared) and self.session (mutable).
         let live: std::collections::HashSet<DrillKey> =
             self.entries.iter().map(|e| drill_key(&e.drill)).collect();
         if let Some(session) = self.session.as_mut() {
@@ -391,6 +400,7 @@ impl MistakeBook {
                 .iter()
                 .filter(|d| !live.contains(&drill_key(d)))
                 .count();
+            // (saturating_sub not needed: shift_next <= session.next_index by construction)
             session.next_index -= shift_next;
             session.queue.retain(|d| live.contains(&drill_key(d)));
             if session.queue.is_empty() {
@@ -928,5 +938,64 @@ mod tests {
         b.prune_orphans(|id| if id == "course-a" { Some(&course) } else { None });
         assert_eq!(b.entries.len(), 1);
         assert_eq!(b.entries[0].drill, drill_a());
+    }
+
+    #[test]
+    fn prune_orphans_also_prunes_session_queue_and_adjusts_next_index() {
+        use crate::storage::course::{Course, Drill, Focus, Sentence, Source, SourceKind};
+        let course_b_only = Course {
+            schema_version: 2,
+            id: "course-b".into(),
+            title: "t".into(),
+            description: None,
+            source: Source {
+                kind: SourceKind::Manual,
+                url: String::new(),
+                created_at: now(),
+                model: "m".into(),
+            },
+            sentences: vec![Sentence {
+                order: 2,
+                drills: vec![Drill {
+                    stage: 1,
+                    focus: Focus::Full,
+                    chinese: "x".into(),
+                    english: "x".into(),
+                    soundmark: String::new(),
+                }],
+            }],
+        };
+        let mut b = MistakeBook::default();
+        b.entries.push(entry_for(drill_a(), now())); // course-a → orphan
+        b.entries.push(entry_for(drill_b(), now())); // course-b s2 d1 → live
+        b.session = Some(SessionState {
+            started_on: d("2026-04-27"),
+            queue: vec![drill_a(), drill_b()],
+            current_round: 1,
+            next_index: 1, // pointing at drill_b
+            round1_completed: false,
+        });
+        b.prune_orphans(|id| if id == "course-b" { Some(&course_b_only) } else { None });
+        let s = b.session.as_ref().unwrap();
+        assert_eq!(s.queue, vec![drill_b()]);
+        assert_eq!(s.next_index, 0);
+        assert_eq!(b.entries.len(), 1);
+    }
+
+    #[test]
+    fn prune_orphans_clears_session_when_all_drills_orphaned() {
+        let mut b = MistakeBook::default();
+        b.entries.push(entry_for(drill_a(), now()));
+        b.session = Some(SessionState {
+            started_on: d("2026-04-27"),
+            queue: vec![drill_a()],
+            current_round: 1,
+            next_index: 0,
+            round1_completed: false,
+        });
+        // No course exists for any id.
+        b.prune_orphans(|_| None);
+        assert!(b.entries.is_empty());
+        assert!(b.session.is_none());
     }
 }
