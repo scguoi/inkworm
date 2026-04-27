@@ -220,7 +220,7 @@ mod tests {
             },
         );
         let s = ProgressSummary::compute(&course, &progress);
-        let expected = (1 * 100 / total) as u8;
+        let expected = (100 / total) as u8;
         assert_eq!(s.pct, expected);
     }
 
