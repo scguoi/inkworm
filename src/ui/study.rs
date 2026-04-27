@@ -8,7 +8,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::Paragraph,
+    widgets::{Paragraph, Wrap},
     Frame,
 };
 
@@ -292,47 +292,32 @@ pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_vi
         None => return,
     };
 
-    // Always reserve 4 lines to prevent layout shift when showing reference answer
-    let block_height = 4u16;
     let is_wrong = matches!(state.feedback(), FeedbackState::Wrong);
-    let y_start = area.height.saturating_sub(block_height) / 2;
     let padding = 5u16.min(area.width / 10);
-
     let content_width = area.width.saturating_sub(padding * 2);
+    if content_width == 0 {
+        return;
+    }
 
-    // Line 1: Chinese
+    // Each section wraps to multiple visual rows when content overflows
+    // content_width. Total height is the sum, recentered each frame.
     let chinese = Paragraph::new(Line::from(Span::styled(
         drill.chinese.clone(),
         Style::default()
             .fg(Color::DarkGray)
             .add_modifier(Modifier::CROSSED_OUT),
-    )));
-    frame.render_widget(
-        chinese,
-        Rect::new(area.x + padding, area.y + y_start, content_width, 1),
-    );
+    )))
+    .wrap(Wrap { trim: false });
 
-    // Line 2: Soundmark
     let soundmark_text = if drill.soundmark.is_empty() {
         " ".to_string()
     } else {
-        let max_chars = content_width as usize;
-        let chars: Vec<char> = drill.soundmark.chars().collect();
-        if chars.len() > max_chars && max_chars > 1 {
-            let mut s: String = chars[..max_chars - 1].iter().collect();
-            s.push('…');
-            s
-        } else {
-            drill.soundmark.clone()
-        }
+        drill.soundmark.clone()
     };
-    let soundmark = Paragraph::new(soundmark_text).style(Style::default().fg(Color::DarkGray));
-    frame.render_widget(
-        soundmark,
-        Rect::new(area.x + padding, area.y + y_start + 1, content_width, 1),
-    );
+    let soundmark = Paragraph::new(soundmark_text)
+        .style(Style::default().fg(Color::DarkGray))
+        .wrap(Wrap { trim: false });
 
-    // Line 3: Input with skeleton
     let skel = skeleton(&drill.english);
     let input = state.input();
     let input_line = build_input_line(
@@ -342,23 +327,44 @@ pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_vi
         state.feedback(),
         cursor_visible,
     );
-    let input_para = Paragraph::new(input_line);
-    frame.render_widget(
-        input_para,
-        Rect::new(area.x + padding, area.y + y_start + 2, content_width, 1),
-    );
+    let input_para = Paragraph::new(input_line).wrap(Wrap { trim: false });
 
-    // Line 4 (only when wrong): Reference answer
-    if is_wrong {
-        let reference_line = Line::from(vec![
-            Span::styled("  ", Style::default()),
-            Span::styled(&drill.english, Style::default().fg(Color::DarkGray)),
-        ]);
-        let reference_para = Paragraph::new(reference_line);
-        frame.render_widget(
-            reference_para,
-            Rect::new(area.x + padding, area.y + y_start + 3, content_width, 1),
-        );
+    let reference_para = if is_wrong {
+        Some(
+            Paragraph::new(Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(drill.english.clone(), Style::default().fg(Color::DarkGray)),
+            ]))
+            .wrap(Wrap { trim: false }),
+        )
+    } else {
+        None
+    };
+
+    let cw = content_width;
+    let h_chinese = chinese.line_count(cw) as u16;
+    let h_soundmark = soundmark.line_count(cw) as u16;
+    let h_input = input_para.line_count(cw) as u16;
+    let h_reference = reference_para
+        .as_ref()
+        .map(|p| p.line_count(cw) as u16)
+        .unwrap_or(0);
+
+    let total_h = h_chinese
+        .saturating_add(h_soundmark)
+        .saturating_add(h_input)
+        .saturating_add(h_reference);
+    let y_start = area.height.saturating_sub(total_h) / 2;
+
+    let mut y = area.y + y_start;
+    frame.render_widget(chinese, Rect::new(area.x + padding, y, cw, h_chinese));
+    y += h_chinese;
+    frame.render_widget(soundmark, Rect::new(area.x + padding, y, cw, h_soundmark));
+    y += h_soundmark;
+    frame.render_widget(input_para, Rect::new(area.x + padding, y, cw, h_input));
+    y += h_input;
+    if let Some(rp) = reference_para {
+        frame.render_widget(rp, Rect::new(area.x + padding, y, cw, h_reference));
     }
 }
 
