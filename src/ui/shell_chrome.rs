@@ -39,6 +39,55 @@ fn truncate_cwd(cwd: &str, max: usize) -> String {
     format!("{}{}{}", head, ellipsis, last)
 }
 
+use ratatui::{
+    style::{Color, Style},
+    text::{Line, Span},
+};
+
+#[derive(Debug, Clone)]
+pub struct ShellHeader {
+    user: String,
+    host: String,
+    cwd: String,
+}
+
+impl ShellHeader {
+    /// Capture user/host/cwd from the environment. Called once at app start.
+    pub fn detect() -> Self {
+        let user = whoami::username();
+        let host = whoami::fallible::hostname().unwrap_or_else(|_| "localhost".to_string());
+        let cwd_raw = std::env::current_dir()
+            .ok()
+            .and_then(|p| p.to_str().map(String::from))
+            .unwrap_or_else(|| "?".to_string());
+        let home = std::env::var("HOME").ok();
+        let cwd = home_rewrite(&cwd_raw, home.as_deref());
+        Self { user, host, cwd }
+    }
+
+    /// Build a Line that fits within `width` columns.
+    pub fn render(&self, width: u16) -> Line<'static> {
+        let prefix = format!("{}@{} ", self.user, self.host);
+        let suffix = " $ ";
+        let prefix_len = prefix.chars().count();
+        let suffix_len = suffix.chars().count();
+        let width = width as usize;
+
+        let cwd_disp = if prefix_len + self.cwd.chars().count() + suffix_len <= width {
+            self.cwd.clone()
+        } else {
+            let cwd_budget = width.saturating_sub(prefix_len + suffix_len);
+            truncate_cwd(&self.cwd, cwd_budget)
+        };
+
+        let style = Style::default().fg(Color::DarkGray);
+        Line::from(vec![Span::styled(
+            format!("{}{}{}", prefix, cwd_disp, suffix),
+            style,
+        )])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,5 +143,55 @@ mod tests {
     #[test]
     fn truncate_cwd_root_path() {
         assert_eq!(truncate_cwd("/", 5), "/");
+    }
+
+    use ratatui::style::Color;
+
+    fn header_fixture() -> ShellHeader {
+        ShellHeader {
+            user: "scguo".to_string(),
+            host: "MacBook-Pro".to_string(),
+            cwd: "~/.tries/2026-04-21-scguoi/inkworm".to_string(),
+        }
+    }
+
+    #[test]
+    fn header_renders_full_when_width_is_ample() {
+        let h = header_fixture();
+        let line = h.render(200);
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(
+            text,
+            "scguo@MacBook-Pro ~/.tries/2026-04-21-scguoi/inkworm $ "
+        );
+    }
+
+    #[test]
+    fn header_truncates_cwd_when_narrow() {
+        let h = header_fixture();
+        // user@host = "scguo@MacBook-Pro " (18). suffix = "$ " (2).
+        // width 40 → cwd budget = 40 - 18 - 2 = 20.
+        let line = h.render(40);
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.starts_with("scguo@MacBook-Pro "));
+        assert!(text.ends_with("$ "));
+        assert!(text.chars().count() <= 40);
+        assert!(text.contains("…/inkworm"));
+    }
+
+    #[test]
+    fn header_uses_dark_gray() {
+        let h = header_fixture();
+        let line = h.render(200);
+        for span in &line.spans {
+            assert_eq!(span.style.fg, Some(Color::DarkGray));
+        }
+    }
+
+    #[test]
+    fn header_extreme_narrow_does_not_panic() {
+        let h = header_fixture();
+        let _ = h.render(5);
+        let _ = h.render(0);
     }
 }
