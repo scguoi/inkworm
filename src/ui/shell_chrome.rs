@@ -105,7 +105,7 @@ pub fn build_status_line(
     }
 
     // Pass 3: no left candidate fits. Show right hints alone if there's room.
-    if 2 + right_len <= width {
+    if right_len <= width {
         let pad = width - right_len;
         return Line::from(vec![Span::styled(
             format!("{}{}", " ".repeat(pad), RIGHT_HINTS),
@@ -459,5 +459,15 @@ mod tests {
         for span in &line.spans {
             assert!(span.style.add_modifier.contains(Modifier::REVERSED));
         }
+    }
+
+    #[test]
+    fn status_bar_no_summary_at_exact_right_width() {
+        // Width equals RIGHT_HINTS length (16). Should show right hints,
+        // no left padding budget.
+        let line = build_status_line(16, None, None);
+        let text = line_text(&line);
+        assert!(text.contains("^P menu  ^C quit"));
+        assert_eq!(text.chars().count(), 16);
     }
 }
