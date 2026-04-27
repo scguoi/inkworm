@@ -270,6 +270,92 @@ fn sort_entries(entries: &mut [MistakeEntry]) {
     });
 }
 
+impl MistakeBook {
+    /// Idempotent: ensures `session` is a valid in-progress session for
+    /// `today` if entries are non-empty. Returns true iff a NEW session
+    /// was started this call (vs. resumed/no-op).
+    pub fn ensure_session(&mut self, today_local: NaiveDate) -> bool {
+        // Drop stale session from a previous day.
+        if let Some(s) = &self.session {
+            if s.started_on != today_local {
+                self.session = None;
+            }
+        }
+        if self.entries.is_empty() {
+            return false;
+        }
+        if self.session.is_some() {
+            return false;
+        }
+        self.session = Some(SessionState {
+            started_on: today_local,
+            queue: self.entries.iter().map(|e| e.drill.clone()).collect(),
+            current_round: 1,
+            next_index: 0,
+            round1_completed: false,
+        });
+        true
+    }
+
+    /// Returns the drill that should be presented now, advancing past any
+    /// cleared/orphaned queue slots silently. Returns None when the
+    /// session has finished (and clears `self.session`).
+    ///
+    /// Takes `&mut self` because it normalizes the session state in-place
+    /// when skipping orphaned drills or transitioning between rounds.
+    pub fn peek_current_drill(&mut self) -> Option<DrillRef> {
+        loop {
+            let session = self.session.as_ref()?;
+            if session.next_index >= session.queue.len() {
+                // End of current round.
+                if session.current_round == 1 {
+                    let s = self.session.as_mut().unwrap();
+                    s.round1_completed = true;
+                    s.current_round = 2;
+                    s.next_index = 0;
+                    continue;
+                } else {
+                    self.session = None;
+                    return None;
+                }
+            }
+            let drill = session.queue[session.next_index].clone();
+            if self.entries.iter().any(|e| e.drill == drill) {
+                return Some(drill);
+            }
+            // Skip cleared/orphaned drill.
+            self.session.as_mut().unwrap().next_index += 1;
+        }
+    }
+
+    /// Move past the current drill (caller has finished evaluating it).
+    pub fn advance_session(&mut self) {
+        if let Some(s) = self.session.as_mut() {
+            s.next_index += 1;
+        }
+        // Re-normalize so a subsequent peek returns the right drill or None.
+        let _ = self.peek_current_drill();
+    }
+
+    /// Current round/index/length for top-bar rendering. None if no
+    /// session or session just completed.
+    pub fn session_progress(&self) -> Option<SessionProgress> {
+        let s = self.session.as_ref()?;
+        Some(SessionProgress {
+            round: s.current_round,
+            index: s.next_index,
+            total: s.queue.len(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionProgress {
+    pub round: u8,
+    pub index: usize,
+    pub total: usize,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -478,6 +564,16 @@ mod tests {
         chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
     }
 
+    fn entry_for(drill: DrillRef, t: DateTime<Utc>) -> MistakeEntry {
+        MistakeEntry {
+            drill,
+            entered_at: t,
+            streak_days: 0,
+            last_qualified_date: None,
+            today: None,
+        }
+    }
+
     fn book_with_one_entry(streak: u32, last_q: Option<chrono::NaiveDate>) -> MistakeBook {
         MistakeBook {
             schema_version: MISTAKES_SCHEMA_VERSION,
@@ -576,5 +672,99 @@ mod tests {
         let o = b.record_mistakes_attempt(&drill_a(), 1, true, d("2026-04-27"));
         assert!(!o.cleared);
         assert!(b.entries.is_empty());
+    }
+
+    #[test]
+    fn ensure_session_starts_when_entries_nonempty_and_no_session() {
+        let mut b = MistakeBook::default();
+        b.entries.push(entry_for(drill_a(), now()));
+        let started = b.ensure_session(d("2026-04-27"));
+        assert!(started);
+        let s = b.session.as_ref().unwrap();
+        assert_eq!(s.started_on, d("2026-04-27"));
+        assert_eq!(s.current_round, 1);
+        assert_eq!(s.next_index, 0);
+        assert!(!s.round1_completed);
+        assert_eq!(s.queue, vec![drill_a()]);
+    }
+
+    #[test]
+    fn ensure_session_no_op_when_entries_empty() {
+        let mut b = MistakeBook::default();
+        let started = b.ensure_session(d("2026-04-27"));
+        assert!(!started);
+        assert!(b.session.is_none());
+    }
+
+    #[test]
+    fn ensure_session_drops_stale_session_from_yesterday() {
+        let mut b = MistakeBook::default();
+        b.entries.push(entry_for(drill_a(), now()));
+        b.session = Some(SessionState {
+            started_on: d("2026-04-26"),
+            queue: vec![drill_a()],
+            current_round: 2,
+            next_index: 1,
+            round1_completed: true,
+        });
+        b.ensure_session(d("2026-04-27"));
+        let s = b.session.as_ref().unwrap();
+        assert_eq!(s.started_on, d("2026-04-27"));
+        assert_eq!(s.current_round, 1);
+        assert_eq!(s.next_index, 0);
+    }
+
+    #[test]
+    fn ensure_session_resumes_today_session_in_place() {
+        let mut b = MistakeBook::default();
+        b.entries.push(entry_for(drill_a(), now()));
+        let same = SessionState {
+            started_on: d("2026-04-27"),
+            queue: vec![drill_a()],
+            current_round: 2,
+            next_index: 0,
+            round1_completed: true,
+        };
+        b.session = Some(same.clone());
+        b.ensure_session(d("2026-04-27"));
+        assert_eq!(b.session.as_ref().unwrap(), &same);
+    }
+
+    #[test]
+    fn advance_session_walks_round_1_then_round_2_then_completes() {
+        let mut b = MistakeBook::default();
+        b.entries.push(entry_for(drill_a(), now()));
+        b.entries.push(entry_for(drill_b(), now()));
+        b.ensure_session(d("2026-04-27"));
+        // Round 1: drill_a then drill_b.
+        assert_eq!(b.peek_current_drill(), Some(drill_a()));
+        b.advance_session();
+        assert_eq!(b.peek_current_drill(), Some(drill_b()));
+        b.advance_session();
+        // Round 2 starts.
+        let s = b.session.as_ref().unwrap();
+        assert_eq!(s.current_round, 2);
+        assert_eq!(s.next_index, 0);
+        assert!(s.round1_completed);
+        assert_eq!(b.peek_current_drill(), Some(drill_a()));
+        b.advance_session();
+        assert_eq!(b.peek_current_drill(), Some(drill_b()));
+        b.advance_session();
+        // Session done → cleared.
+        assert!(b.session.is_none());
+        assert!(b.peek_current_drill().is_none());
+    }
+
+    #[test]
+    fn advance_session_skips_drills_no_longer_in_entries() {
+        // Drill cleared mid-session: queue still has it but entries lost it.
+        let mut b = MistakeBook::default();
+        b.entries.push(entry_for(drill_a(), now()));
+        b.entries.push(entry_for(drill_b(), now()));
+        b.ensure_session(d("2026-04-27"));
+        // Pretend drill_a got cleared.
+        b.entries.retain(|e| e.drill != drill_a());
+        // First peek should skip drill_a and return drill_b.
+        assert_eq!(b.peek_current_drill(), Some(drill_b()));
     }
 }
