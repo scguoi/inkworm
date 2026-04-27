@@ -187,6 +187,10 @@ impl MistakeBook {
             today: None,
         });
         sort_entries(&mut self.entries);
+        // Caller precondition (enforced by startup + /mistakes command):
+        // any non-None session has been verified as today's session before
+        // reaching this function. We therefore append unconditionally; we
+        // don't have a NaiveDate parameter and we don't need one.
         if let Some(session) = &mut self.session {
             session.queue.push(drill.clone());
         }
@@ -387,6 +391,16 @@ mod tests {
         b.save(&path).unwrap();
         let b2 = MistakeBook::load(&path).unwrap();
         assert_eq!(b, b2);
+    }
+
+    #[test]
+    fn normal_correct_on_never_seen_drill_is_full_noop() {
+        let mut b = MistakeBook::default();
+        let outcome = b.record_normal_attempt(&drill_a(), true, now());
+        assert!(!outcome.promoted);
+        assert!(b.wrong_streaks.is_empty());
+        assert!(b.entries.is_empty());
+        assert!(b.session.is_none());
     }
 
     #[test]
