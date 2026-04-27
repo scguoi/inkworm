@@ -301,11 +301,12 @@ pub fn render_study(frame: &mut Frame, area: Rect, state: &StudyState, cursor_vi
     let content_width = area.width.saturating_sub(padding * 2);
 
     // Line 1: Chinese
-    let chinese = Paragraph::new(drill.chinese.as_str()).style(
+    let chinese = Paragraph::new(Line::from(Span::styled(
+        drill.chinese.clone(),
         Style::default()
             .fg(Color::DarkGray)
             .add_modifier(Modifier::CROSSED_OUT),
-    );
+    )));
     frame.render_widget(
         chinese,
         Rect::new(area.x + padding, area.y + y_start, content_width, 1),
