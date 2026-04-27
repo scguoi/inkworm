@@ -146,6 +146,64 @@ impl MistakeBook {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct NormalOutcome {
+    /// True iff this attempt promoted the drill from wrong_streaks to entries.
+    pub promoted: bool,
+}
+
+impl MistakeBook {
+    /// Record an answer in normal study mode. Updates wrong_streaks /
+    /// entries / active session queue per spec §3.2. Does NOT touch
+    /// `streak_days` / `today` / mastered_count.
+    pub fn record_normal_attempt(
+        &mut self,
+        drill: &DrillRef,
+        first_attempt_correct: bool,
+        now_utc: DateTime<Utc>,
+    ) -> NormalOutcome {
+        let key = drill_key(drill);
+        // Invariant 1: a drill in entries is never simultaneously in
+        // wrong_streaks. Normal attempts on such a drill are invisible to
+        // the mistakes book (decision 9).
+        if self.entries.iter().any(|e| e.drill == *drill) {
+            return NormalOutcome { promoted: false };
+        }
+        if first_attempt_correct {
+            self.wrong_streaks.remove(&key);
+            return NormalOutcome { promoted: false };
+        }
+        let count = self.wrong_streaks.entry(key.clone()).or_insert(0);
+        *count += 1;
+        if *count < 2 {
+            return NormalOutcome { promoted: false };
+        }
+        self.wrong_streaks.remove(&key);
+        self.entries.push(MistakeEntry {
+            drill: drill.clone(),
+            entered_at: now_utc,
+            streak_days: 0,
+            last_qualified_date: None,
+            today: None,
+        });
+        sort_entries(&mut self.entries);
+        if let Some(session) = &mut self.session {
+            session.queue.push(drill.clone());
+        }
+        NormalOutcome { promoted: true }
+    }
+}
+
+fn sort_entries(entries: &mut [MistakeEntry]) {
+    entries.sort_by(|a, b| {
+        a.entered_at
+            .cmp(&b.entered_at)
+            .then_with(|| a.drill.course_id.cmp(&b.drill.course_id))
+            .then_with(|| a.drill.sentence_order.cmp(&b.drill.sentence_order))
+            .then_with(|| a.drill.drill_stage.cmp(&b.drill.drill_stage))
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,6 +215,101 @@ mod tests {
             sentence_order: 1,
             drill_stage: 2,
         }
+    }
+
+    fn drill_b() -> DrillRef {
+        DrillRef {
+            course_id: "course-b".into(),
+            sentence_order: 2,
+            drill_stage: 1,
+        }
+    }
+
+    fn now() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 4, 27, 10, 0, 0).unwrap()
+    }
+
+    #[test]
+    fn normal_correct_clears_wrong_streak() {
+        let mut b = MistakeBook::default();
+        b.wrong_streaks.insert(drill_key(&drill_a()), 1);
+        let outcome = b.record_normal_attempt(&drill_a(), true, now());
+        assert!(!outcome.promoted);
+        assert!(b.wrong_streaks.is_empty());
+        assert!(b.entries.is_empty());
+    }
+
+    #[test]
+    fn normal_first_wrong_inserts_count_one() {
+        let mut b = MistakeBook::default();
+        let outcome = b.record_normal_attempt(&drill_a(), false, now());
+        assert!(!outcome.promoted);
+        assert_eq!(b.wrong_streaks.get(&drill_key(&drill_a())), Some(&1));
+        assert!(b.entries.is_empty());
+    }
+
+    #[test]
+    fn normal_second_wrong_promotes_to_entries() {
+        let mut b = MistakeBook::default();
+        b.record_normal_attempt(&drill_a(), false, now());
+        let outcome = b.record_normal_attempt(&drill_a(), false, now());
+        assert!(outcome.promoted);
+        assert!(b.wrong_streaks.is_empty());
+        assert_eq!(b.entries.len(), 1);
+        assert_eq!(b.entries[0].drill, drill_a());
+        assert_eq!(b.entries[0].streak_days, 0);
+    }
+
+    #[test]
+    fn normal_attempt_on_drill_already_in_entries_is_noop_for_book_state() {
+        let mut b = MistakeBook::default();
+        b.entries.push(MistakeEntry {
+            drill: drill_a(),
+            entered_at: now(),
+            streak_days: 1,
+            last_qualified_date: None,
+            today: None,
+        });
+        // Wrong attempt in normal flow on a drill already in entries: must NOT
+        // touch wrong_streaks or entries (invariant: disjoint sets).
+        let outcome = b.record_normal_attempt(&drill_a(), false, now());
+        assert!(!outcome.promoted);
+        assert!(b.wrong_streaks.is_empty());
+        assert_eq!(b.entries.len(), 1);
+        assert_eq!(b.entries[0].streak_days, 1);
+    }
+
+    #[test]
+    fn promoted_drill_appends_to_active_session_queue() {
+        let mut b = MistakeBook::default();
+        b.session = Some(SessionState {
+            started_on: chrono::NaiveDate::from_ymd_opt(2026, 4, 27).unwrap(),
+            queue: vec![drill_b()],
+            current_round: 1,
+            next_index: 0,
+            round1_completed: false,
+        });
+        b.record_normal_attempt(&drill_a(), false, now());
+        let o = b.record_normal_attempt(&drill_a(), false, now());
+        assert!(o.promoted);
+        let session = b.session.as_ref().unwrap();
+        assert_eq!(session.queue, vec![drill_b(), drill_a()]);
+    }
+
+    #[test]
+    fn entries_sorted_by_entered_at_then_drill_ref() {
+        let mut b = MistakeBook::default();
+        let later = Utc.with_ymd_and_hms(2026, 4, 28, 0, 0, 0).unwrap();
+        // Promote drill_b first (earlier timestamp).
+        b.record_normal_attempt(&drill_b(), false, now());
+        b.record_normal_attempt(&drill_b(), false, now());
+        // Promote drill_a later.
+        b.record_normal_attempt(&drill_a(), false, later);
+        b.record_normal_attempt(&drill_a(), false, later);
+        assert_eq!(
+            b.entries.iter().map(|e| e.drill.clone()).collect::<Vec<_>>(),
+            vec![drill_b(), drill_a()]
+        );
     }
 
     #[test]
