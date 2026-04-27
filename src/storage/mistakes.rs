@@ -235,7 +235,10 @@ impl MistakeBook {
         let slot = match round {
             1 => &mut today.round1,
             2 => &mut today.round2,
-            _ => return MistakesOutcome { cleared: false },
+            _ => {
+                debug_assert!(false, "round must be 1 or 2, got {round}");
+                return MistakesOutcome { cleared: false };
+            }
         };
         if slot.is_none() {
             *slot = Some(first_attempt_correct);
@@ -541,6 +544,17 @@ mod tests {
         let o = b.record_mistakes_attempt(&drill_a(), 2, true, d("2026-04-27"));
         assert!(o.cleared);
         assert!(b.entries.is_empty());
+    }
+
+    #[test]
+    fn mistakes_both_rounds_wrong_does_not_qualify() {
+        let mut b = book_with_one_entry(1, Some(d("2026-04-26")));
+        b.record_mistakes_attempt(&drill_a(), 1, false, d("2026-04-27"));
+        b.record_mistakes_attempt(&drill_a(), 2, false, d("2026-04-27"));
+        let entry = &b.entries[0];
+        assert_eq!(entry.streak_days, 1);
+        assert_eq!(entry.today.as_ref().unwrap().round1, Some(false));
+        assert_eq!(entry.today.as_ref().unwrap().round2, Some(false));
     }
 
     #[test]
