@@ -54,6 +54,7 @@ pub struct App {
     pub tts_session_disabled: bool,
     pub doctor_results: Option<Vec<crate::ui::doctor::CheckResult>>,
     pub info_banner: Option<String>,
+    pub shell_header: crate::ui::shell_chrome::ShellHeader,
 }
 
 impl App {
@@ -89,6 +90,7 @@ impl App {
             tts_session_disabled: false,
             doctor_results: None,
             info_banner: None,
+            shell_header: crate::ui::shell_chrome::ShellHeader::detect(),
         }
     }
 
@@ -717,15 +719,54 @@ impl App {
         self.should_quit = true;
     }
 
+    /// Draw the shell prompt header on row 0 and the status bar on the
+    /// last row, returning the inner Rect available for the study UI.
+    fn render_chrome(&self, frame: &mut Frame) -> ratatui::layout::Rect {
+        use ratatui::layout::Rect;
+        let area = frame.area();
+        if area.height < 3 {
+            // Too small to spare two rows for chrome; skip it.
+            return area;
+        }
+        let header_area = Rect {
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: 1,
+        };
+        let status_area = Rect {
+            x: area.x,
+            y: area.y + area.height - 1,
+            width: area.width,
+            height: 1,
+        };
+        let inner = Rect {
+            x: area.x,
+            y: area.y + 1,
+            width: area.width,
+            height: area.height - 2,
+        };
+
+        let header_line = self.shell_header.render(area.width);
+        frame.render_widget(ratatui::widgets::Paragraph::new(header_line), header_area);
+
+        let course_id = self.study.current_course().map(|c| c.id.as_str());
+        let summary = self
+            .study
+            .current_course()
+            .map(|c| crate::ui::shell_chrome::ProgressSummary::compute(c, self.study.progress()));
+        let status_line =
+            crate::ui::shell_chrome::build_status_line(area.width, course_id, summary);
+        frame.render_widget(ratatui::widgets::Paragraph::new(status_line), status_area);
+
+        inner
+    }
+
     pub fn render(&self, frame: &mut Frame) {
         match &self.screen {
             Screen::Study => {
-                crate::ui::study::render_study(
-                    frame,
-                    frame.area(),
-                    &self.study,
-                    self.cursor_visible,
-                );
+                let inner = self.render_chrome(frame);
+                crate::ui::study::render_study(frame, inner, &self.study, self.cursor_visible);
                 if let Some(ref banner) = self.info_banner {
                     use ratatui::{
                         layout::Rect,
@@ -733,21 +774,16 @@ impl App {
                         text::Line,
                         widgets::Paragraph,
                     };
-                    let area = frame.area();
-                    let y = area.height.saturating_sub(1);
+                    let y = inner.y + inner.height.saturating_sub(1);
                     let para = Paragraph::new(Line::from(banner.as_str()))
                         .style(Style::default().fg(Color::Yellow))
                         .centered();
-                    frame.render_widget(para, Rect::new(0, y, area.width, 1));
+                    frame.render_widget(para, Rect::new(0, y, inner.width, 1));
                 }
             }
             Screen::Palette => {
-                crate::ui::study::render_study(
-                    frame,
-                    frame.area(),
-                    &self.study,
-                    self.cursor_visible,
-                );
+                let inner = self.render_chrome(frame);
+                crate::ui::study::render_study(frame, inner, &self.study, self.cursor_visible);
                 if let Some(palette) = &self.palette {
                     crate::ui::palette::render_palette(frame, palette);
                 }
@@ -763,12 +799,8 @@ impl App {
                 }
             }
             Screen::DeleteConfirm => {
-                crate::ui::study::render_study(
-                    frame,
-                    frame.area(),
-                    &self.study,
-                    self.cursor_visible,
-                );
+                let inner = self.render_chrome(frame);
+                crate::ui::study::render_study(frame, inner, &self.study, self.cursor_visible);
                 if let Some(ref title) = self.delete_confirming {
                     render_delete_confirm(frame, title);
                 }
@@ -783,23 +815,15 @@ impl App {
                 }
             }
             Screen::CourseList => {
-                crate::ui::study::render_study(
-                    frame,
-                    frame.area(),
-                    &self.study,
-                    self.cursor_visible,
-                );
+                let inner = self.render_chrome(frame);
+                crate::ui::study::render_study(frame, inner, &self.study, self.cursor_visible);
                 if let Some(ref state) = self.course_list {
                     crate::ui::course_list::render_course_list(frame, state);
                 }
             }
             Screen::TtsStatus => {
-                crate::ui::study::render_study(
-                    frame,
-                    frame.area(),
-                    &self.study,
-                    self.cursor_visible,
-                );
+                let inner = self.render_chrome(frame);
+                crate::ui::study::render_study(frame, inner, &self.study, self.cursor_visible);
                 let cache_stats = crate::tts::cache::cache_stats(&self.data_paths.tts_cache_dir);
                 let last_error = self
                     .last_tts_error
@@ -816,12 +840,8 @@ impl App {
                 );
             }
             Screen::Doctor => {
-                crate::ui::study::render_study(
-                    frame,
-                    frame.area(),
-                    &self.study,
-                    self.cursor_visible,
-                );
+                let inner = self.render_chrome(frame);
+                crate::ui::study::render_study(frame, inner, &self.study, self.cursor_visible);
                 if let Some(ref results) = self.doctor_results {
                     crate::ui::doctor::render_doctor(frame, results);
                 }
