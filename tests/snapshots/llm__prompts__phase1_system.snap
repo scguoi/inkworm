@@ -23,6 +23,7 @@ Rules:
 - Prioritize sentences with useful vocabulary and grammar patterns for this level.
 - If the article is long, pick the most instructive sentences; do NOT quote the whole article.
 - Each English sentence must be typable (ASCII letters, straight quotes, basic punctuation).
+- `chinese` MUST be written in Chinese (Hanzi / 汉字). It is INVALID to put English text in this field — every drill needs an actual Chinese rendering.
 - `chinese` MUST be idiomatic, native-feeling Chinese — NOT a word-for-word literal translation:
   * Reorder constituents to match natural Chinese grammar (Chinese is modifier-before-noun; English often modifier-after-noun via clauses or "of"-phrases).
   * Use the natural Chinese term for each concept, not the most direct dictionary gloss. Examples (avoid → prefer):

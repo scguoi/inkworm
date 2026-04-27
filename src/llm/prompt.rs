@@ -33,6 +33,7 @@ Rules:
 - Prioritize sentences with useful vocabulary and grammar patterns for this level.
 - If the article is long, pick the most instructive sentences; do NOT quote the whole article.
 - Each English sentence must be typable (ASCII letters, straight quotes, basic punctuation).
+- `chinese` MUST be written in Chinese (Hanzi / 汉字). It is INVALID to put English text in this field — every drill needs an actual Chinese rendering.
 - `chinese` MUST be idiomatic, native-feeling Chinese — NOT a word-for-word literal translation:
   * Reorder constituents to match natural Chinese grammar (Chinese is modifier-before-noun; English often modifier-after-noun via clauses or "of"-phrases).
   * Use the natural Chinese term for each concept, not the most direct dictionary gloss. Examples (avoid → prefer):
@@ -70,6 +71,7 @@ Rules:
 - The LAST drill MUST have focus="full" and its english MUST match the input english verbatim.
 - `stage` is 1-indexed and strictly increasing.
 - `chinese` is 1-200 chars. `english` is 1-50 words.
+- `chinese` MUST be written in Chinese (Hanzi / 汉字). Putting English text in this field is INVALID — every drill, including partials like keywords / skeleton, needs an actual Chinese rendering.
 - `chinese` MUST be idiomatic, native-feeling Chinese (NOT word-for-word from the english):
   * Reorder freely so it reads naturally in Chinese; English-style postmodifier clauses become 的-phrases before the noun.
   * Use the natural Chinese term, not the direct dictionary gloss. Examples: "emergent" → "涌现的" (NOT "出现的"); "tool-using" (modifier) → "会使用工具的" (NOT "工具使用"); "self-correcting" → "能自我修正的" (NOT "自我纠正").

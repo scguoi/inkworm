@@ -98,6 +98,14 @@ pub enum ValidationError {
         len: usize,
     },
     #[error(
+        "sentences[{sentence}].drills[{drill}].chinese must contain Chinese characters (Hanzi), got {value:?}"
+    )]
+    ChineseNotInChinese {
+        sentence: usize,
+        drill: usize,
+        value: String,
+    },
+    #[error(
         "sentences[{sentence}].drills[{drill}].english word count must be 1..=50, got {words}"
     )]
     EnglishWordCount {
@@ -190,6 +198,13 @@ impl Course {
                         len: clen,
                     });
                 }
+                if !contains_hanzi(&d.chinese) {
+                    errs.push(ValidationError::ChineseNotInChinese {
+                        sentence: i,
+                        drill: j,
+                        value: d.chinese.clone(),
+                    });
+                }
                 let words = d.english.split_whitespace().count();
                 if !(1..=50).contains(&words) {
                     errs.push(ValidationError::EnglishWordCount {
@@ -272,6 +287,14 @@ fn contains_ipa_marker(s: &str) -> bool {
     })
 }
 
+/// Returns true if `s` contains at least one CJK Unified Ideograph
+/// (incl. Extension A). Used to catch LLM outputs that put English in
+/// the `chinese` field.
+fn contains_hanzi(s: &str) -> bool {
+    s.chars()
+        .any(|c| ('\u{3400}'..='\u{4DBF}').contains(&c) || ('\u{4E00}'..='\u{9FFF}').contains(&c))
+}
+
 fn is_valid_soundmark(s: &str) -> bool {
     if s.is_empty() {
         return true;
@@ -301,6 +324,36 @@ fn is_valid_soundmark(s: &str) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod hanzi_tests {
+    use super::contains_hanzi;
+
+    #[test]
+    fn ascii_only_is_not_chinese() {
+        assert!(!contains_hanzi("This separates toy demos"));
+    }
+
+    #[test]
+    fn pure_hanzi_is_chinese() {
+        assert!(contains_hanzi("代理是涌现的行为"));
+    }
+
+    #[test]
+    fn mixed_hanzi_and_ascii_is_chinese() {
+        assert!(contains_hanzi("LLM 驱动的代理"));
+    }
+
+    #[test]
+    fn punctuation_only_is_not_chinese() {
+        assert!(!contains_hanzi("，。！？"));
+    }
+
+    #[test]
+    fn empty_is_not_chinese() {
+        assert!(!contains_hanzi(""));
+    }
 }
 
 #[cfg(test)]
