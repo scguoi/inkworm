@@ -288,7 +288,7 @@ pub fn render_help(frame: &mut Frame) {
         Style::default().fg(Color::DarkGray),
     )));
 
-    let height = lines.len() as u16;
+    let height = (lines.len() as u16).min(area.height);
     let width = 60u16.min(area.width);
     let y = (area.height.saturating_sub(height)) / 2;
     let x = (area.width.saturating_sub(width)) / 2;
