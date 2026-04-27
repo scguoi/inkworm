@@ -301,8 +301,11 @@ impl MistakeBook {
     /// cleared/orphaned queue slots silently. Returns None when the
     /// session has finished (and clears `self.session`).
     ///
-    /// Takes `&mut self` because it normalizes the session state in-place
-    /// when skipping orphaned drills or transitioning between rounds.
+    /// Takes `&mut self` because it normalizes session state (skips orphans,
+    /// transitions round 1→2, clears completed sessions). Render paths that
+    /// only need a snapshot should use [`Self::session_progress`] for
+    /// progress numbers; a `&self` accessor for the current drill ref is
+    /// planned in a later task once render-time normalization isn't needed.
     pub fn peek_current_drill(&mut self) -> Option<DrillRef> {
         loop {
             let session = self.session.as_ref()?;
@@ -315,6 +318,7 @@ impl MistakeBook {
                     s.next_index = 0;
                     continue;
                 } else {
+                    debug_assert_eq!(session.current_round, 2, "current_round must be 1 or 2");
                     self.session = None;
                     return None;
                 }
@@ -333,7 +337,9 @@ impl MistakeBook {
         if let Some(s) = self.session.as_mut() {
             s.next_index += 1;
         }
-        // Re-normalize so a subsequent peek returns the right drill or None.
+        // Pre-normalize persisted state so a `save()` between advance and the
+        // next peek writes a clean next_index (skipping any drills that were
+        // cleared during this advance).
         let _ = self.peek_current_drill();
     }
 
@@ -766,5 +772,16 @@ mod tests {
         b.entries.retain(|e| e.drill != drill_a());
         // First peek should skip drill_a and return drill_b.
         assert_eq!(b.peek_current_drill(), Some(drill_b()));
+    }
+
+    #[test]
+    fn peek_returns_none_when_all_drills_cleared_mid_session() {
+        let mut b = MistakeBook::default();
+        b.entries.push(entry_for(drill_a(), now()));
+        b.entries.push(entry_for(drill_b(), now()));
+        b.ensure_session(d("2026-04-27"));
+        b.entries.clear(); // all cleared simultaneously
+        assert_eq!(b.peek_current_drill(), None);
+        assert!(b.session.is_none());
     }
 }
