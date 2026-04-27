@@ -362,6 +362,35 @@ pub struct SessionProgress {
     pub total: usize,
 }
 
+impl MistakeBook {
+    /// Remove all traces of `course_id` from the book. Adjusts session
+    /// queue and `next_index`; clears session if the queue is exhausted.
+    pub fn purge_course(&mut self, course_id: &str) {
+        let prefix = format!("{course_id}|");
+        self.wrong_streaks.retain(|k, _| !k.starts_with(&prefix));
+        self.entries.retain(|e| e.drill.course_id != course_id);
+        let Some(session) = self.session.as_mut() else {
+            return;
+        };
+        let mut shift_next = 0usize;
+        let mut new_queue = Vec::with_capacity(session.queue.len());
+        for (i, d) in session.queue.iter().enumerate() {
+            if d.course_id == course_id {
+                if i < session.next_index {
+                    shift_next += 1;
+                }
+            } else {
+                new_queue.push(d.clone());
+            }
+        }
+        session.next_index = session.next_index.saturating_sub(shift_next);
+        session.queue = new_queue;
+        if session.queue.is_empty() {
+            self.session = None;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -782,6 +811,47 @@ mod tests {
         b.ensure_session(d("2026-04-27"));
         b.entries.clear(); // all cleared simultaneously
         assert_eq!(b.peek_current_drill(), None);
+        assert!(b.session.is_none());
+    }
+
+    #[test]
+    fn purge_course_removes_from_wrong_streaks_entries_and_session_queue() {
+        let mut b = MistakeBook::default();
+        b.wrong_streaks.insert(drill_key(&drill_a()), 1);
+        b.wrong_streaks.insert(drill_key(&drill_b()), 1);
+        b.entries.push(entry_for(drill_a(), now()));
+        b.entries.push(entry_for(drill_b(), now()));
+        b.session = Some(SessionState {
+            started_on: d("2026-04-27"),
+            queue: vec![drill_a(), drill_b()],
+            current_round: 1,
+            next_index: 1, // pointing at drill_b
+            round1_completed: false,
+        });
+        b.purge_course("course-a");
+        assert!(b.wrong_streaks.contains_key(&drill_key(&drill_b())));
+        assert!(!b.wrong_streaks.contains_key(&drill_key(&drill_a())));
+        assert_eq!(b.entries.len(), 1);
+        assert_eq!(b.entries[0].drill, drill_b());
+        let s = b.session.as_ref().unwrap();
+        assert_eq!(s.queue, vec![drill_b()]);
+        // next_index was 1 (pointing at drill_b, idx 1); after removing
+        // drill_a (idx 0), drill_b is now at idx 0, so next_index should be 0.
+        assert_eq!(s.next_index, 0);
+    }
+
+    #[test]
+    fn purge_course_clears_session_when_queue_becomes_empty() {
+        let mut b = MistakeBook::default();
+        b.entries.push(entry_for(drill_a(), now()));
+        b.session = Some(SessionState {
+            started_on: d("2026-04-27"),
+            queue: vec![drill_a()],
+            current_round: 1,
+            next_index: 0,
+            round1_completed: false,
+        });
+        b.purge_course("course-a");
         assert!(b.session.is_none());
     }
 }
