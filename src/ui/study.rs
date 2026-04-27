@@ -1,6 +1,7 @@
 use crate::clock::Clock;
 use crate::judge;
 use crate::storage::course::{Course, Drill};
+use crate::storage::mistakes::DrillRef;
 use crate::storage::progress::Progress;
 use crate::ui::skeleton::skeleton;
 use chrono::{DateTime, Utc};
@@ -31,6 +32,18 @@ pub enum StudyPhase {
     Complete,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StudyMode {
+    Course,
+    Mistakes,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubmitOutcome {
+    pub drill_ref: DrillRef,
+    pub first_attempt_correct: bool,
+}
+
 pub struct StudyState {
     course: Option<Course>,
     sentence_idx: usize,
@@ -42,6 +55,11 @@ pub struct StudyState {
     /// Timestamp of the most recent correct submission. `None` unless
     /// `feedback == Correct`. Drives the 0.5s auto-advance tick.
     correct_at: Option<DateTime<Utc>>,
+    mode: StudyMode,
+    /// True until the FIRST submit() for the current drill-visit (not the
+    /// drill itself: visiting same drill twice in mistakes mode counts as
+    /// two visits). Reset by next_drill / clear_and_restart.
+    first_attempt_pending: bool,
 }
 
 impl StudyState {
@@ -55,6 +73,8 @@ impl StudyState {
             phase: StudyPhase::Empty,
             progress,
             correct_at: None,
+            mode: StudyMode::Course,
+            first_attempt_pending: true,
         };
         state.resolve_phase();
         if state.phase == StudyPhase::Active {
@@ -146,24 +166,41 @@ impl StudyState {
         self.input.pop();
     }
 
-    pub fn submit(&mut self, clock: &dyn Clock) {
+    pub fn submit(&mut self, clock: &dyn Clock) -> Option<SubmitOutcome> {
         if self.phase != StudyPhase::Active {
-            return;
+            return None;
         }
         if self.feedback != FeedbackState::Typing {
-            return;
+            return None;
         }
-        let drill = match self.current_drill() {
-            Some(d) => d,
-            None => return,
+        let course = self.course.as_ref()?;
+        let sentence = course.sentences.get(self.sentence_idx)?;
+        let drill = sentence.drills.get(self.drill_idx)?;
+        let was_correct = judge::equals(&self.input, &drill.english);
+        let drill_ref = DrillRef {
+            course_id: course.id.clone(),
+            sentence_order: sentence.order,
+            drill_stage: drill.stage,
         };
-        if judge::equals(&self.input, &drill.english) {
-            self.record_correct(clock);
+        let outcome = if self.first_attempt_pending {
+            self.first_attempt_pending = false;
+            Some(SubmitOutcome {
+                drill_ref,
+                first_attempt_correct: was_correct,
+            })
+        } else {
+            None
+        };
+        if was_correct {
+            if matches!(self.mode, StudyMode::Course) {
+                self.record_correct(clock);
+            }
             self.feedback = FeedbackState::Correct;
             self.correct_at = Some(clock.now());
         } else {
             self.feedback = FeedbackState::Wrong;
         }
+        outcome
     }
 
     /// Returns `true` if the state advanced to the next drill. Call from a
@@ -246,6 +283,15 @@ impl StudyState {
         self.input.clear();
         self.feedback = FeedbackState::Typing;
         self.correct_at = None;
+        self.first_attempt_pending = true;
+    }
+
+    pub fn mode(&self) -> &StudyMode {
+        &self.mode
+    }
+
+    pub fn set_mode(&mut self, mode: StudyMode) {
+        self.mode = mode;
     }
 }
 
@@ -686,5 +732,59 @@ mod tests {
         let after_prefix: Vec<Option<Color>> =
             line.spans.iter().skip(1).map(|s| s.style.fg).collect();
         assert!(after_prefix.iter().all(|c| *c == Some(Color::White)));
+    }
+
+    #[test]
+    fn submit_returns_first_attempt_outcome_then_none() {
+        let clk = clock();
+        let mut state = StudyState::new(Some(fixture_course()), Progress::empty());
+        for c in "AI think".chars() {
+            // wrong
+            state.type_char(c);
+        }
+        let o1 = state.submit(&clk);
+        assert_eq!(
+            o1,
+            Some(SubmitOutcome {
+                drill_ref: crate::storage::mistakes::DrillRef {
+                    course_id: "2026-04-21-ted-ai".into(),
+                    sentence_order: 1,
+                    drill_stage: 1,
+                },
+                first_attempt_correct: false,
+            })
+        );
+        // Retype correctly; submit should NOT yield a new outcome (first-attempt only).
+        state.clear_and_restart();
+        for c in "AI think day".chars() {
+            state.type_char(c);
+        }
+        let o2 = state.submit(&clk);
+        assert_eq!(o2, None);
+        // mastered_count still updated for Course mode.
+        let dp = &state.progress().courses["2026-04-21-ted-ai"].sentences["1"].drills["1"];
+        assert_eq!(dp.mastered_count, 1);
+    }
+
+    #[test]
+    fn submit_first_attempt_correct_returns_true_outcome_and_marks_correct() {
+        let clk = clock();
+        let mut state = StudyState::new(Some(fixture_course()), Progress::empty());
+        for c in "AI think day".chars() {
+            state.type_char(c);
+        }
+        let o = state.submit(&clk);
+        assert_eq!(
+            o,
+            Some(SubmitOutcome {
+                drill_ref: crate::storage::mistakes::DrillRef {
+                    course_id: "2026-04-21-ted-ai".into(),
+                    sentence_order: 1,
+                    drill_stage: 1,
+                },
+                first_attempt_correct: true,
+            })
+        );
+        assert_eq!(*state.feedback(), FeedbackState::Correct);
     }
 }
