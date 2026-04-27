@@ -1,6 +1,9 @@
 //! Shell-style chrome around the study screen: top prompt header and
 //! bottom reverse-video status bar.
 
+use crate::storage::course::Course;
+use crate::storage::progress::Progress;
+
 fn home_rewrite(cwd: &str, home: Option<&str>) -> String {
     let Some(home) = home else {
         return cwd.to_string();
@@ -43,6 +46,71 @@ use ratatui::{
     style::{Color, Style},
     text::{Line, Span},
 };
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgressSummary {
+    pub pct: u8,
+    /// (1-indexed current sentence, total sentences)
+    pub sentence: (usize, usize),
+    /// (1-indexed current drill in that sentence, drills in that sentence)
+    pub drill: (usize, usize),
+}
+
+impl ProgressSummary {
+    pub fn compute(course: &Course, progress: &Progress) -> Self {
+        let total_sentences = course.sentences.len();
+        let total_drills: usize = course.sentences.iter().map(|s| s.drills.len()).sum();
+
+        let cp = progress.course(&course.id);
+        let mut mastered = 0usize;
+        let mut first_incomplete: Option<(usize, usize)> = None;
+        for (si, sentence) in course.sentences.iter().enumerate() {
+            for (di, drill) in sentence.drills.iter().enumerate() {
+                let m = cp
+                    .and_then(|cp| cp.sentences.get(&sentence.order.to_string()))
+                    .and_then(|sp| sp.drills.get(&drill.stage.to_string()))
+                    .map_or(0, |dp| dp.mastered_count);
+                if m >= 1 {
+                    mastered += 1;
+                } else if first_incomplete.is_none() {
+                    first_incomplete = Some((si, di));
+                }
+            }
+        }
+
+        let pct = if total_drills == 0 {
+            0
+        } else {
+            ((mastered * 100) / total_drills).min(100) as u8
+        };
+
+        let (s_cur_idx, d_cur_idx) = match first_incomplete {
+            Some((si, di)) => (si, di),
+            None => {
+                // Fully complete: point to the last sentence's last drill.
+                let si = total_sentences.saturating_sub(1);
+                let di = course
+                    .sentences
+                    .last()
+                    .map(|s| s.drills.len().saturating_sub(1))
+                    .unwrap_or(0);
+                (si, di)
+            }
+        };
+
+        let drills_in_current = course
+            .sentences
+            .get(s_cur_idx)
+            .map(|s| s.drills.len())
+            .unwrap_or(0);
+
+        Self {
+            pct,
+            sentence: (s_cur_idx + 1, total_sentences),
+            drill: (d_cur_idx + 1, drills_in_current),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ShellHeader {
@@ -91,6 +159,70 @@ impl ShellHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::course::Course;
+    use crate::storage::progress::{DrillProgress, Progress};
+
+    fn fixture_course() -> Course {
+        let json = include_str!("../../fixtures/courses/good/minimal.json");
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn summary_empty_progress_points_to_first_drill() {
+        let course = fixture_course();
+        let s = ProgressSummary::compute(&course, &Progress::empty());
+        assert_eq!(s.pct, 0);
+        assert_eq!(s.sentence.0, 1);
+        assert_eq!(s.drill.0, 1);
+    }
+
+    #[test]
+    fn summary_complete_is_100() {
+        let course = fixture_course();
+        let total: usize = course.sentences.iter().map(|s| s.drills.len()).sum();
+        let last_sentence_idx = course.sentences.len();
+        let last_drill_count = course.sentences.last().unwrap().drills.len();
+        let mut progress = Progress::empty();
+        let cp = progress.course_mut(&course.id);
+        for sentence in &course.sentences {
+            let sp = cp.sentences.entry(sentence.order.to_string()).or_default();
+            for drill in &sentence.drills {
+                sp.drills.insert(
+                    drill.stage.to_string(),
+                    DrillProgress {
+                        mastered_count: 1,
+                        last_correct_at: None,
+                    },
+                );
+            }
+        }
+        let s = ProgressSummary::compute(&course, &progress);
+        assert_eq!(s.pct, 100);
+        assert_eq!(s.sentence, (last_sentence_idx, last_sentence_idx));
+        assert_eq!(s.drill, (last_drill_count, last_drill_count));
+        let _ = total; // silence unused if total isn't asserted on
+    }
+
+    #[test]
+    fn summary_partial_progress_pct_floor() {
+        let course = fixture_course();
+        let total: usize = course.sentences.iter().map(|s| s.drills.len()).sum();
+        let mut progress = Progress::empty();
+        let cp = progress.course_mut(&course.id);
+        // Mark exactly one drill mastered.
+        let s1 = &course.sentences[0];
+        let sp = cp.sentences.entry(s1.order.to_string()).or_default();
+        sp.drills.insert(
+            s1.drills[0].stage.to_string(),
+            DrillProgress {
+                mastered_count: 1,
+                last_correct_at: None,
+            },
+        );
+        let s = ProgressSummary::compute(&course, &progress);
+        let expected = (1 * 100 / total) as u8;
+        assert_eq!(s.pct, expected);
+    }
 
     #[test]
     fn home_rewrite_replaces_home_prefix() {
