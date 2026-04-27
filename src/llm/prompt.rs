@@ -67,7 +67,14 @@ Rules:
   * NEVER include slash-delimited phonetic transcriptions
 - `soundmark` REQUIREMENTS:
   * Must be IPA pronunciation of the ENGLISH text, NOT the Chinese text
+  * Use General American (GenAm) pronunciation as the reference dialect
   * ALL stages (including "full") MUST provide IPA wrapped in /slashes/ per word. Example: "/sɛns/ /wɛər/ /juː/ /ɑːr/"
+  * One slash group per English word. Each group is ONE continuous IPA string between its slashes — do NOT insert spaces or periods (`.`) inside the slashes (use the primary stress mark `ˈ` to separate syllables, not `.`)
+  * Skip punctuation (commas, periods) — punctuation in `english` does NOT get its own slash group
+  * Match the standard dictionary form. Common mistakes to AVOID:
+    – Dropping final consonants. "user" is /ˈjuːzər/ (NOT /ˈjuːər/); "is" is /ɪz/; "interacts" is /ˌɪntərˈækts/
+    – Wrong sibilant suffix. Plural / 3rd-person -s is /s/ after voiceless, /z/ after voiced, /ɪz/ after sibilants (e.g. "needs" → /niːdz/, "watches" → /ˈwɑːtʃɪz/)
+    – Wrong past-tense suffix. -ed is /t/ after voiceless, /d/ after voiced, /ɪd/ after t/d
   * NEVER use Chinese pinyin or Chinese phonetics — only English IPA
   * NEVER leave soundmark empty for any stage
 - Return JSON only.

@@ -276,7 +276,9 @@ fn is_valid_soundmark(s: &str) -> bool {
     if s.is_empty() {
         return true;
     }
-    // Must match (/[^/]+/\s*)+
+    // Must match (/[^/]+/\s*)+, where each /...../ contains no whitespace
+    // or '.' (one continuous IPA string per word — syllables separated by
+    // stress marks ˈ ˌ, not periods or spaces).
     let mut chars = s.chars().peekable();
     while chars.peek().is_some() {
         if chars.next() != Some('/') {
@@ -286,6 +288,7 @@ fn is_valid_soundmark(s: &str) -> bool {
         loop {
             match chars.next() {
                 Some('/') => break,
+                Some(c) if c.is_whitespace() || c == '.' => return false,
                 Some(c) => inner.push(c),
                 None => return false,
             }
@@ -298,6 +301,51 @@ fn is_valid_soundmark(s: &str) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod soundmark_tests {
+    use super::is_valid_soundmark;
+
+    #[test]
+    fn empty_is_valid() {
+        assert!(is_valid_soundmark(""));
+    }
+
+    #[test]
+    fn per_word_slashes_are_valid() {
+        assert!(is_valid_soundmark("/aɪ/ /θɪŋk/ /əˈbaʊt/"));
+    }
+
+    #[test]
+    fn no_slashes_is_invalid() {
+        assert!(!is_valid_soundmark("aɪ θɪŋk"));
+    }
+
+    #[test]
+    fn unterminated_slash_is_invalid() {
+        assert!(!is_valid_soundmark("/aɪ"));
+    }
+
+    #[test]
+    fn empty_slash_group_is_invalid() {
+        assert!(!is_valid_soundmark("//"));
+    }
+
+    #[test]
+    fn whitespace_inside_slashes_is_invalid() {
+        assert!(!is_valid_soundmark("/ðə ˈeɪɡənt/"));
+    }
+
+    #[test]
+    fn period_inside_slashes_is_invalid() {
+        assert!(!is_valid_soundmark("/ˈeɪ.ɡənt/"));
+    }
+
+    #[test]
+    fn stress_marks_inside_slashes_are_valid() {
+        assert!(is_valid_soundmark("/ˈeɪɡənt/ /ˌɪntərˈækts/"));
+    }
 }
 
 #[derive(Debug, Error)]
