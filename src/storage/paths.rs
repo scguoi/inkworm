@@ -13,7 +13,7 @@ pub struct DataPaths {
     pub root: PathBuf,
     pub config_file: PathBuf,
     pub progress_file: PathBuf,
-    pub mistakes_path: PathBuf,
+    pub mistakes_file: PathBuf,
     pub log_file: PathBuf,
     pub courses_dir: PathBuf,
     pub failed_dir: PathBuf,
@@ -45,7 +45,7 @@ impl DataPaths {
         Self {
             config_file: root.join("config.toml"),
             progress_file: root.join("progress.json"),
-            mistakes_path: root.join("mistakes.json"),
+            mistakes_file: root.join("mistakes.json"),
             log_file: root.join("inkworm.log"),
             courses_dir: root.join("courses"),
             failed_dir: root.join("failed"),
@@ -72,11 +72,10 @@ impl DataPaths {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
-    fn from_root_sets_mistakes_path() {
+    fn from_root_sets_mistakes_file() {
         let p = DataPaths::for_tests(PathBuf::from("/tmp/inkworm-test"));
-        assert_eq!(p.mistakes_path, PathBuf::from("/tmp/inkworm-test/mistakes.json"));
+        assert_eq!(p.mistakes_file, PathBuf::from("/tmp/inkworm-test/mistakes.json"));
     }
 }
