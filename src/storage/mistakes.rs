@@ -372,19 +372,15 @@ impl MistakeBook {
         let Some(session) = self.session.as_mut() else {
             return;
         };
-        let mut shift_next = 0usize;
-        let mut new_queue = Vec::with_capacity(session.queue.len());
-        for (i, d) in session.queue.iter().enumerate() {
-            if d.course_id == course_id {
-                if i < session.next_index {
-                    shift_next += 1;
-                }
-            } else {
-                new_queue.push(d.clone());
-            }
-        }
-        session.next_index = session.next_index.saturating_sub(shift_next);
-        session.queue = new_queue;
+        // Pass 1: count purged items strictly before next_index.
+        // (saturating_sub not needed: shift_next <= session.next_index by construction)
+        let shift_next = session.queue[..session.next_index]
+            .iter()
+            .filter(|d| d.course_id == course_id)
+            .count();
+        session.next_index -= shift_next;
+        // Pass 2: drop purged items in place.
+        session.queue.retain(|d| d.course_id != course_id);
         if session.queue.is_empty() {
             self.session = None;
         }
