@@ -25,7 +25,7 @@
 **Modify**
 
 - `src/storage/mod.rs`（暴露 `mistakes` 模块）
-- `src/storage/paths.rs`（新增 `mistakes_path` 字段）
+- `src/storage/paths.rs`（新增 `mistakes_file` 字段）
 - `src/clock.rs`（trait 增加 `today_local()`）
 - `src/lib.rs`（无需修改：已 `pub mod storage`）
 - `src/main.rs`（加载 `MistakeBook` 并传入 `App::new`）
@@ -36,7 +36,7 @@
 
 ---
 
-## Task 1：DataPaths 增加 `mistakes_path`
+## Task 1：DataPaths 增加 `mistakes_file`
 
 **Files:**
 - Modify: `src/storage/paths.rs`
@@ -52,9 +52,9 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn from_root_sets_mistakes_path() {
+    fn from_root_sets_mistakes_file() {
         let p = DataPaths::for_tests(PathBuf::from("/tmp/inkworm-test"));
-        assert_eq!(p.mistakes_path, PathBuf::from("/tmp/inkworm-test/mistakes.json"));
+        assert_eq!(p.mistakes_file, PathBuf::from("/tmp/inkworm-test/mistakes.json"));
     }
 }
 ```
@@ -62,10 +62,10 @@ mod tests {
 - [ ] **Step 2：跑测试看红**
 
 ```
-cargo test -p inkworm --lib storage::paths::tests::from_root_sets_mistakes_path
+cargo test -p inkworm --lib storage::paths::tests::from_root_sets_mistakes_file
 ```
 
-期望：编译错误 `no field 'mistakes_path' on type DataPaths`。
+期望：编译错误 `no field 'mistakes_file' on type DataPaths`。
 
 - [ ] **Step 3：实现**
 
@@ -77,7 +77,7 @@ pub struct DataPaths {
     pub root: PathBuf,
     pub config_file: PathBuf,
     pub progress_file: PathBuf,
-    pub mistakes_path: PathBuf,
+    pub mistakes_file: PathBuf,
     pub log_file: PathBuf,
     pub courses_dir: PathBuf,
     pub failed_dir: PathBuf,
@@ -89,7 +89,7 @@ fn from_root(root: PathBuf) -> Self {
     Self {
         config_file: root.join("config.toml"),
         progress_file: root.join("progress.json"),
-        mistakes_path: root.join("mistakes.json"),
+        mistakes_file: root.join("mistakes.json"),
         log_file: root.join("inkworm.log"),
         courses_dir: root.join("courses"),
         failed_dir: root.join("failed"),
@@ -111,7 +111,7 @@ cargo test -p inkworm --lib storage::paths
 
 ```bash
 git add src/storage/paths.rs
-git commit -m "feat(storage): add mistakes_path to DataPaths"
+git commit -m "feat(storage): add mistakes_file to DataPaths"
 ```
 
 ---
@@ -1642,13 +1642,13 @@ pub mistakes: MistakeBook,
 在 `progress = Progress::load(...)` 之后追加：
 
 ```rust
-let mistakes = match inkworm::storage::mistakes::MistakeBook::load(&paths.mistakes_path) {
+let mistakes = match inkworm::storage::mistakes::MistakeBook::load(&paths.mistakes_file) {
     Ok(b) => b,
     Err(e) => {
         // Spec §6 row 2: rename corrupt file to .bak.{ts} and start empty.
         let ts = chrono::Utc::now().format("%Y%m%d%H%M%S");
         let bak = paths.root.join(format!("mistakes.json.bak.{ts}"));
-        let _ = std::fs::rename(&paths.mistakes_path, &bak);
+        let _ = std::fs::rename(&paths.mistakes_file, &bak);
         eprintln!(
             "mistakes: load failed ({e}); backed up to {} and starting empty",
             bak.display()
@@ -1734,7 +1734,7 @@ impl App {
             Some(c) => c,
             None => {
                 self.mistakes.purge_course(&drill_ref.course_id);
-                let _ = self.mistakes.save(&self.data_paths.mistakes_path);
+                let _ = self.mistakes.save(&self.data_paths.mistakes_file);
                 if self.mistakes.peek_current_drill().is_some() {
                     self.enter_mistakes_mode_at_current_drill();
                 }
@@ -1792,7 +1792,7 @@ fn startup_apply_mistakes_session(&mut self) {
     if self.mistakes.peek_current_drill().is_some() {
         self.enter_mistakes_mode_at_current_drill();
     }
-    let _ = self.mistakes.save(&self.data_paths.mistakes_path);
+    let _ = self.mistakes.save(&self.data_paths.mistakes_file);
 }
 ```
 
@@ -1869,7 +1869,7 @@ impl App {
                 }
             }
         }
-        if let Err(e) = self.mistakes.save(&self.data_paths.mistakes_path) {
+        if let Err(e) = self.mistakes.save(&self.data_paths.mistakes_file) {
             tracing::warn!("mistakes: save failed: {e}");
             self.info_banner = Some(format!("保存错题本失败: {e}"));
         }
@@ -1920,7 +1920,7 @@ fn tick_advance(&mut self) {
             return;
         }
         self.mistakes.advance_session();
-        let _ = self.mistakes.save(&self.data_paths.mistakes_path);
+        let _ = self.mistakes.save(&self.data_paths.mistakes_file);
         if self.mistakes.peek_current_drill().is_some() {
             self.enter_mistakes_mode_at_current_drill();
         } else {
@@ -1960,7 +1960,7 @@ KeyCode::Tab => {
         // In mistakes mode, Tab moves to the next drill in session
         // queue without recording any verdict (today.roundN stays None).
         self.mistakes.advance_session();
-        let _ = self.mistakes.save(&self.data_paths.mistakes_path);
+        let _ = self.mistakes.save(&self.data_paths.mistakes_file);
         if self.mistakes.peek_current_drill().is_some() {
             self.enter_mistakes_mode_at_current_drill();
         } else {
@@ -2005,7 +2005,7 @@ if key.code == KeyCode::Esc
 {
     // Park session as-is and drop back to course mode. Next launch /
     // /mistakes resumes from session.next_index.
-    let _ = self.mistakes.save(&self.data_paths.mistakes_path);
+    let _ = self.mistakes.save(&self.data_paths.mistakes_file);
     self.info_banner = Some("已退出错题本（可用 /mistakes 重入）".into());
     self.enter_course_mode();
     return;
@@ -2057,7 +2057,7 @@ Command {
 "mistakes" => {
     let today = self.clock.today_local();
     self.mistakes.ensure_session(today);
-    let _ = self.mistakes.save(&self.data_paths.mistakes_path);
+    let _ = self.mistakes.save(&self.data_paths.mistakes_file);
     if self.mistakes.peek_current_drill().is_some() {
         self.enter_mistakes_mode_at_current_drill();
     } else {
@@ -2249,7 +2249,7 @@ let _ = self.study.progress().save(&self.data_paths.progress_file);
 
 ```rust
 self.mistakes.purge_course(&course_id);
-let _ = self.mistakes.save(&self.data_paths.mistakes_path);
+let _ = self.mistakes.save(&self.data_paths.mistakes_file);
 ```
 
 - [ ] **Step 2：编译 + 测试**
