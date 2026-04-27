@@ -45,12 +45,18 @@ mod tests {
 
     #[test]
     fn home_rewrite_replaces_home_prefix() {
-        assert_eq!(home_rewrite("/Users/scguo/.tries/x", Some("/Users/scguo")), "~/.tries/x");
+        assert_eq!(
+            home_rewrite("/Users/scguo/.tries/x", Some("/Users/scguo")),
+            "~/.tries/x"
+        );
     }
 
     #[test]
     fn home_rewrite_keeps_path_when_outside_home() {
-        assert_eq!(home_rewrite("/etc/passwd", Some("/Users/scguo")), "/etc/passwd");
+        assert_eq!(
+            home_rewrite("/etc/passwd", Some("/Users/scguo")),
+            "/etc/passwd"
+        );
     }
 
     #[test]
