@@ -506,6 +506,17 @@ impl App {
             }
             return;
         }
+        if key.code == KeyCode::Esc
+            && matches!(self.study.mode(), crate::ui::study::StudyMode::Mistakes)
+        {
+            // Park session as-is and drop back to course mode. Next launch /
+            // /mistakes resumes from session.next_index.
+            self.save_mistakes();
+            self.info_banner = Some("已退出错题本（可用 /mistakes 重入）".into());
+            self.enter_course_mode();
+            self.speak_current_drill();
+            return;
+        }
         match self.study.feedback() {
             FeedbackState::Correct => {
                 let _ = self.study.progress().save(&self.data_paths.progress_file);
