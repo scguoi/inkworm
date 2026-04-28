@@ -225,6 +225,14 @@ impl StudyState {
         true
     }
 
+    pub fn is_advance_due(&self, now: DateTime<Utc>) -> bool {
+        if self.feedback != FeedbackState::Correct {
+            return false;
+        }
+        let Some(t) = self.correct_at else { return false };
+        now.signed_duration_since(t).num_milliseconds() >= AUTO_ADVANCE_DELAY_MS
+    }
+
     fn record_correct(&mut self, clock: &dyn Clock) {
         let course = match &self.course {
             Some(c) => c,

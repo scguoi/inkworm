@@ -347,10 +347,31 @@ impl App {
             });
         }
         // Auto-advance after a correct answer (0.5s linger).
-        if matches!(self.screen, Screen::Study) && self.study.auto_advance_if_due(self.clock.now())
-        {
-            let _ = self.study.progress().save(&self.data_paths.progress_file);
-            self.speak_current_drill();
+        if matches!(self.screen, Screen::Study) {
+            self.tick_advance();
+        }
+    }
+
+    fn tick_advance(&mut self) {
+        let now = self.clock.now();
+        if matches!(self.study.mode(), crate::ui::study::StudyMode::Mistakes) {
+            if !self.study.is_advance_due(now) {
+                return;
+            }
+            self.mistakes.advance_session();
+            self.save_mistakes();
+            if self.mistakes.peek_current_drill().is_some() {
+                self.enter_mistakes_mode_at_current_drill();
+            } else {
+                // Session finished.
+                self.info_banner = Some("今日错题练习完成 ✓".into());
+                self.enter_course_mode();
+            }
+        } else {
+            if self.study.auto_advance_if_due(now) {
+                let _ = self.study.progress().save(&self.data_paths.progress_file);
+                self.speak_current_drill();
+            }
         }
     }
 
@@ -507,7 +528,19 @@ impl App {
                     }
                 }
                 KeyCode::Tab => {
-                    self.study.skip();
+                    if matches!(self.study.mode(), crate::ui::study::StudyMode::Mistakes) {
+                        // Skip in mistakes mode: advance via session queue, no verdict recorded.
+                        self.mistakes.advance_session();
+                        self.save_mistakes();
+                        if self.mistakes.peek_current_drill().is_some() {
+                            self.enter_mistakes_mode_at_current_drill();
+                        } else {
+                            self.info_banner = Some("今日错题练习完成 ✓".into());
+                            self.enter_course_mode();
+                        }
+                    } else {
+                        self.study.skip();
+                    }
                     self.speak_current_drill();
                 }
                 _ => {}
