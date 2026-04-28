@@ -62,7 +62,9 @@ fn main() -> anyhow::Result<()> {
 
     let progress = Progress::load(&paths.progress_file)?;
 
-    let mistakes = match inkworm::storage::mistakes::MistakeBook::load(&paths.mistakes_file) {
+    let mut boot_warnings: Vec<String> = Vec::new();
+
+    let mut mistakes = match inkworm::storage::mistakes::MistakeBook::load(&paths.mistakes_file) {
         Ok(b) => b,
         Err(e) => {
             // Spec §6 row 2: rename corrupt file to .bak.{ts} and start empty.
@@ -79,9 +81,41 @@ fn main() -> anyhow::Result<()> {
                 "mistakes: load failed ({e}); backed up to {} and starting empty",
                 bak.display()
             );
+            boot_warnings.push(format!("错题本损坏，已备份并从空开始（{}）", bak.display()));
             inkworm::storage::mistakes::MistakeBook::empty()
         }
     };
+
+    // Defensive: drop entries pointing at courses/sentences/stages that no
+    // longer exist (e.g. user manually deleted a course file, or an LLM
+    // regenerated a course with different sentence/stage shape). Spec §3.4.
+    let mut courses_for_prune: std::collections::HashMap<String, inkworm::storage::course::Course> =
+        std::collections::HashMap::new();
+    if let Ok(metas) = inkworm::storage::course::list_courses(&paths.courses_dir) {
+        for meta in metas {
+            if let Ok(c) = inkworm::storage::course::load_course(&paths.courses_dir, &meta.id) {
+                courses_for_prune.insert(meta.id, c);
+            }
+        }
+    }
+    let entries_before = mistakes.entries.len();
+    let wrong_streaks_before = mistakes.wrong_streaks.len();
+    mistakes.prune_orphans(|id| courses_for_prune.get(id));
+    let pruned_entries = entries_before.saturating_sub(mistakes.entries.len());
+    let pruned_streaks = wrong_streaks_before.saturating_sub(mistakes.wrong_streaks.len());
+    if pruned_entries + pruned_streaks > 0 {
+        let msg = format!(
+            "mistakes: pruned {} orphan entries and {} orphan streaks at startup",
+            pruned_entries, pruned_streaks
+        );
+        eprintln!("{msg}");
+        tracing::info!("{msg}");
+        boot_warnings.push(format!(
+            "已清理 {} 条孤立错题（课程缺失）",
+            pruned_entries + pruned_streaks
+        ));
+        let _ = mistakes.save(&paths.mistakes_file);
+    }
 
     let course = progress
         .active_course_id
@@ -115,6 +149,11 @@ fn main() -> anyhow::Result<()> {
     rt.block_on(async {
         let mut guard = TerminalGuard::new()?;
         let (task_tx, task_rx) = tokio::sync::mpsc::channel(32);
+        let combined_boot_warning = if boot_warnings.is_empty() {
+            None
+        } else {
+            Some(boot_warnings.join(" · "))
+        };
         let mut app = App::new(
             course,
             progress,
@@ -122,6 +161,7 @@ fn main() -> anyhow::Result<()> {
             Arc::new(SystemClock),
             config,
             mistakes,
+            combined_boot_warning,
             task_tx,
             speaker,
         );

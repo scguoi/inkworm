@@ -79,6 +79,7 @@ fn make_app(paths: DataPaths, speaker: Arc<dyn Speaker>, course: Option<Course>)
         Arc::new(SystemClock),
         config,
         inkworm::storage::mistakes::MistakeBook::empty(),
+        None,
         task_tx,
         speaker,
     )

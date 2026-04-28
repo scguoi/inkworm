@@ -70,6 +70,7 @@ impl App {
         clock: Arc<dyn Clock>,
         config: Config,
         mistakes: MistakeBook,
+        boot_warning: Option<String>,
         task_tx: mpsc::Sender<TaskMsg>,
         speaker: Arc<dyn Speaker>,
     ) -> Self {
@@ -100,6 +101,9 @@ impl App {
             shell_header: crate::ui::shell_chrome::ShellHeader::detect(),
         };
         app.startup_apply_mistakes_session();
+        if boot_warning.is_some() && app.info_banner.is_none() {
+            app.info_banner = boot_warning;
+        }
         app
     }
 
@@ -163,9 +167,11 @@ impl App {
         self.study = new_state;
     }
 
-    fn save_mistakes(&self) {
+    fn save_mistakes(&mut self) {
         if let Err(e) = self.mistakes.save(&self.data_paths.mistakes_file) {
-            eprintln!("Failed to save mistakes book: {e}");
+            let msg = format!("保存错题本失败: {e}");
+            tracing::warn!("{msg}");
+            self.info_banner = Some(msg);
         }
     }
 
