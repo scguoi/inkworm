@@ -166,6 +166,38 @@ impl App {
         }
     }
 
+    fn handle_submit_outcome(&mut self, outcome: crate::ui::study::SubmitOutcome) {
+        match self.study.mode() {
+            crate::ui::study::StudyMode::Course => {
+                let _ = self.mistakes.record_normal_attempt(
+                    &outcome.drill_ref,
+                    outcome.first_attempt_correct,
+                    self.clock.now(),
+                );
+            }
+            crate::ui::study::StudyMode::Mistakes => {
+                let round = self
+                    .mistakes
+                    .session_progress()
+                    .map(|p| p.round)
+                    .unwrap_or(1);
+                let result = self.mistakes.record_mistakes_attempt(
+                    &outcome.drill_ref,
+                    round,
+                    outcome.first_attempt_correct,
+                    self.clock.today_local(),
+                );
+                if result.cleared {
+                    self.info_banner = Some(format!(
+                        "{} stage {} 已从错题本清出 ✓",
+                        outcome.drill_ref.course_id, outcome.drill_ref.drill_stage
+                    ));
+                }
+            }
+        }
+        self.save_mistakes();
+    }
+
     /// Remove a single orphaned entry (course exists but sentence/stage no
     /// longer matches). Adjusts session.queue + next_index using the same
     /// logic as `purge_course`'s queue rebuild.
@@ -468,7 +500,10 @@ impl App {
                     if self.study.input().is_empty() {
                         self.speak_current_drill();
                     } else {
-                        self.study.submit(self.clock.as_ref());
+                        let outcome = self.study.submit(self.clock.as_ref());
+                        if let Some(o) = outcome {
+                            self.handle_submit_outcome(o);
+                        }
                     }
                 }
                 KeyCode::Tab => {
