@@ -20,6 +20,8 @@ use crate::ui::palette::{Command, PaletteState};
 use crate::ui::study::{FeedbackState, StudyMode, StudyState};
 use crate::ui::task_msg::{GenerateProgress, TaskMsg};
 
+const MISTAKES_DONE_BANNER: &str = "今日错题练习完成 ✓";
+
 pub enum Screen {
     Study,
     Palette,
@@ -364,9 +366,10 @@ impl App {
                 self.enter_mistakes_mode_at_current_drill();
             } else {
                 // Session finished.
-                self.info_banner = Some("今日错题练习完成 ✓".into());
+                self.info_banner = Some(MISTAKES_DONE_BANNER.into());
                 self.enter_course_mode();
             }
+            self.speak_current_drill();
         } else {
             if self.study.auto_advance_if_due(now) {
                 let _ = self.study.progress().save(&self.data_paths.progress_file);
@@ -535,7 +538,7 @@ impl App {
                         if self.mistakes.peek_current_drill().is_some() {
                             self.enter_mistakes_mode_at_current_drill();
                         } else {
-                            self.info_banner = Some("今日错题练习完成 ✓".into());
+                            self.info_banner = Some(MISTAKES_DONE_BANNER.into());
                             self.enter_course_mode();
                         }
                     } else {
