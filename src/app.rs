@@ -106,7 +106,7 @@ impl App {
         if self.mistakes.peek_current_drill().is_some() {
             self.enter_mistakes_mode_at_current_drill();
         }
-        let _ = self.mistakes.save(&self.data_paths.mistakes_file);
+        self.save_mistakes();
     }
 
     fn load_course_owned(&self, id: &str) -> Option<crate::storage::course::Course> {
@@ -124,28 +124,65 @@ impl App {
             Some(c) => c,
             None => {
                 self.mistakes.purge_course(&drill_ref.course_id);
-                let _ = self.mistakes.save(&self.data_paths.mistakes_file);
+                self.save_mistakes();
                 if self.mistakes.peek_current_drill().is_some() {
                     self.enter_mistakes_mode_at_current_drill();
                 }
                 return;
             }
         };
-        let sentence_idx = course
+        let Some(sentence_idx) = course
             .sentences
             .iter()
             .position(|s| s.order == drill_ref.sentence_order)
-            .unwrap_or(0);
-        let drill_idx = course
-            .sentences
-            .get(sentence_idx)
-            .and_then(|s| s.drills.iter().position(|d| d.stage == drill_ref.drill_stage))
-            .unwrap_or(0);
+        else {
+            self.purge_orphan_entry(&drill_ref);
+            if self.mistakes.peek_current_drill().is_some() {
+                self.enter_mistakes_mode_at_current_drill();
+            }
+            return;
+        };
+        let Some(drill_idx) = course.sentences[sentence_idx]
+            .drills
+            .iter()
+            .position(|d| d.stage == drill_ref.drill_stage)
+        else {
+            self.purge_orphan_entry(&drill_ref);
+            if self.mistakes.peek_current_drill().is_some() {
+                self.enter_mistakes_mode_at_current_drill();
+            }
+            return;
+        };
         let progress_clone = self.study.progress().clone();
         let mut new_state = StudyState::new(Some(course), progress_clone);
         new_state.set_mode(StudyMode::Mistakes);
         new_state.set_current_drill(sentence_idx, drill_idx);
         self.study = new_state;
+    }
+
+    fn save_mistakes(&self) {
+        if let Err(e) = self.mistakes.save(&self.data_paths.mistakes_file) {
+            eprintln!("Failed to save mistakes book: {e}");
+        }
+    }
+
+    /// Remove a single orphaned entry (course exists but sentence/stage no
+    /// longer matches). Adjusts session.queue + next_index using the same
+    /// logic as `purge_course`'s queue rebuild.
+    fn purge_orphan_entry(&mut self, drill: &crate::storage::mistakes::DrillRef) {
+        self.mistakes.entries.retain(|e| &e.drill != drill);
+        if let Some(session) = self.mistakes.session.as_mut() {
+            let shift_next = session.queue[..session.next_index]
+                .iter()
+                .filter(|d| *d == drill)
+                .count();
+            session.next_index -= shift_next;
+            session.queue.retain(|d| d != drill);
+            if session.queue.is_empty() {
+                self.mistakes.session = None;
+            }
+        }
+        self.save_mistakes();
     }
 
     fn enter_course_mode(&mut self) {
