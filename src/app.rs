@@ -20,7 +20,7 @@ use crate::ui::palette::{Command, PaletteState};
 use crate::ui::study::{FeedbackState, StudyMode, StudyState};
 use crate::ui::task_msg::{GenerateProgress, TaskMsg};
 
-const MISTAKES_DONE_BANNER: &str = "今日错题练习完成 ✓";
+const MISTAKES_DONE_BANNER: &str = "Review complete for today ✓";
 
 pub enum Screen {
     Study,
@@ -169,7 +169,7 @@ impl App {
 
     fn save_mistakes(&mut self) {
         if let Err(e) = self.mistakes.save(&self.data_paths.mistakes_file) {
-            let msg = format!("保存错题本失败: {e}");
+            let msg = format!("Failed to save review state: {e}");
             tracing::warn!("{msg}");
             self.info_banner = Some(msg);
         }
@@ -198,7 +198,7 @@ impl App {
                 );
                 if result.cleared {
                     self.info_banner = Some(format!(
-                        "{} stage {} 已从错题本清出 ✓",
+                        "{} stage {} cleared ✓",
                         outcome.drill_ref.course_id, outcome.drill_ref.drill_stage
                     ));
                 }
@@ -519,7 +519,7 @@ impl App {
             // Park session as-is and drop back to course mode. Next launch /
             // /mistakes resumes from session.next_index.
             self.save_mistakes();
-            self.info_banner = Some("已退出错题本（可用 /mistakes 重入）".into());
+            self.info_banner = Some("Review paused (resume with /mistakes)".into());
             self.enter_course_mode();
             self.speak_current_drill();
             return;
@@ -853,13 +853,13 @@ impl App {
             "logs" => self.execute_logs(),
             "mistakes" => {
                 let today = self.clock.today_local();
-                self.mistakes.ensure_session(today);
+                self.mistakes.ensure_session_force(today);
                 self.save_mistakes();
                 if self.mistakes.peek_current_drill().is_some() {
                     self.enter_mistakes_mode_at_current_drill();
                     self.speak_current_drill();
                 } else {
-                    self.info_banner = Some("🎉 今日无错题".into());
+                    self.info_banner = Some("🎉 No reviews today".into());
                 }
             }
             "doctor" => self.execute_doctor(),

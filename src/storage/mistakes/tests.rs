@@ -363,6 +363,125 @@ fn ensure_session_drops_stale_session_from_yesterday() {
 }
 
 #[test]
+fn ensure_session_skips_when_all_entries_two_rounds_done_today() {
+    // Regression: after the user finishes round 1+2 today,
+    // peek_current_drill clears `session`. A relaunch on the same day
+    // must not auto-recreate a fresh round-1 session — repeats wouldn't
+    // change state (first-attempt-only) and would just pull the user
+    // back into mistakes mode with no purpose.
+    let mut b = MistakeBook::default();
+    let mut entry = entry_for(drill_a(), now());
+    entry.streak_days = 1;
+    entry.last_qualified_date = Some(d("2026-04-27"));
+    entry.today = Some(TodayAttempts {
+        date: d("2026-04-27"),
+        round1: Some(true),
+        round2: Some(true),
+    });
+    b.entries.push(entry);
+    let started = b.ensure_session(d("2026-04-27"));
+    assert!(!started);
+    assert!(b.session.is_none());
+}
+
+#[test]
+fn ensure_session_skips_when_today_done_even_for_failed_attempts() {
+    // Two rounds attempted today (regardless of correctness) is enough
+    // to skip auto-pop: subsequent attempts can't change today's
+    // verdict either way.
+    let mut b = MistakeBook::default();
+    let mut entry = entry_for(drill_a(), now());
+    entry.today = Some(TodayAttempts {
+        date: d("2026-04-27"),
+        round1: Some(false),
+        round2: Some(true),
+    });
+    b.entries.push(entry);
+    let started = b.ensure_session(d("2026-04-27"));
+    assert!(!started);
+    assert!(b.session.is_none());
+}
+
+#[test]
+fn ensure_session_force_creates_session_even_when_today_done() {
+    // /mistakes palette path: user wants to re-practice even though
+    // today's already counted.
+    let mut b = MistakeBook::default();
+    let mut entry = entry_for(drill_a(), now());
+    entry.today = Some(TodayAttempts {
+        date: d("2026-04-27"),
+        round1: Some(true),
+        round2: Some(true),
+    });
+    b.entries.push(entry);
+    let started = b.ensure_session_force(d("2026-04-27"));
+    assert!(started);
+    let s = b.session.as_ref().unwrap();
+    assert_eq!(s.current_round, 1);
+    assert_eq!(s.next_index, 0);
+}
+
+#[test]
+fn ensure_session_drops_phantom_session_when_today_already_done() {
+    // Regression for the on-disk state shape produced by the old
+    // ensure_session: a fresh round-1 session got persisted *after*
+    // today's two rounds were already complete. New launches must
+    // reclaim that phantom and return the user to Course mode.
+    let mut b = MistakeBook::default();
+    let mut entry = entry_for(drill_a(), now());
+    entry.streak_days = 1;
+    entry.last_qualified_date = Some(d("2026-04-27"));
+    entry.today = Some(TodayAttempts {
+        date: d("2026-04-27"),
+        round1: Some(true),
+        round2: Some(true),
+    });
+    b.entries.push(entry);
+    b.session = Some(SessionState {
+        started_on: d("2026-04-27"),
+        queue: vec![drill_a()],
+        current_round: 1,
+        next_index: 0,
+        round1_completed: false,
+    });
+    let started = b.ensure_session(d("2026-04-27"));
+    assert!(!started);
+    assert!(b.session.is_none(), "phantom session should be dropped");
+}
+
+#[test]
+fn ensure_session_creates_when_round2_pending_today() {
+    // round1 done today but round2 not yet attempted → still need to
+    // pop so the user can finish today's second round.
+    let mut b = MistakeBook::default();
+    let mut entry = entry_for(drill_a(), now());
+    entry.today = Some(TodayAttempts {
+        date: d("2026-04-27"),
+        round1: Some(true),
+        round2: None,
+    });
+    b.entries.push(entry);
+    let started = b.ensure_session(d("2026-04-27"));
+    assert!(started);
+}
+
+#[test]
+fn ensure_session_creates_when_today_is_yesterdays_data() {
+    // entry.today carries yesterday's two-round verdicts — today is a
+    // fresh day, must pop.
+    let mut b = MistakeBook::default();
+    let mut entry = entry_for(drill_a(), now());
+    entry.today = Some(TodayAttempts {
+        date: d("2026-04-26"),
+        round1: Some(true),
+        round2: Some(true),
+    });
+    b.entries.push(entry);
+    let started = b.ensure_session(d("2026-04-27"));
+    assert!(started);
+}
+
+#[test]
 fn ensure_session_resumes_today_session_in_place() {
     let mut b = MistakeBook::default();
     b.entries.push(entry_for(drill_a(), now()));

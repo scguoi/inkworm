@@ -81,7 +81,10 @@ fn main() -> anyhow::Result<()> {
                 "mistakes: load failed ({e}); backed up to {} and starting empty",
                 bak.display()
             );
-            boot_warnings.push(format!("错题本损坏，已备份并从空开始（{}）", bak.display()));
+            boot_warnings.push(format!(
+                "Review file corrupt; backed up and started empty ({})",
+                bak.display()
+            ));
             inkworm::storage::mistakes::MistakeBook::empty()
         }
     };
@@ -111,7 +114,7 @@ fn main() -> anyhow::Result<()> {
         eprintln!("{msg}");
         tracing::info!("{msg}");
         boot_warnings.push(format!(
-            "已清理 {} 条孤立错题（课程缺失）",
+            "Pruned {} orphan review entries (course missing)",
             pruned_entries + pruned_streaks
         ));
         let _ = mistakes.save(&paths.mistakes_file);

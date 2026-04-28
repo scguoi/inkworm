@@ -246,7 +246,7 @@ pub fn build_status_line_with_mistakes(
     let style = Style::default().fg(Color::Yellow);
     if let Some(b) = badge {
         let label = format!(
-            "错题本 · 第 {}/{} 轮 · {}/{} · ({}/{})",
+            "Review · R{}/{} · {}/{} · ({}/{})",
             b.round,
             b.total_rounds,
             b.index + 1,
@@ -284,7 +284,7 @@ mod mistakes_top_bar_tests {
             }),
         );
         let s: String = line.spans.iter().map(|sp| sp.content.to_string()).collect();
-        assert!(s.contains("错题本 · 第 1/2 轮 · 4/12 · (2/3)"));
+        assert!(s.contains("Review · R1/2 · 4/12 · (2/3)"));
     }
 }
 

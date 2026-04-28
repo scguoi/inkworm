@@ -273,7 +273,26 @@ impl MistakeBook {
     /// Idempotent: ensures `session` is a valid in-progress session for
     /// `today` if entries are non-empty. Returns true iff a NEW session
     /// was started this call (vs. resumed/no-op).
+    ///
+    /// Skips creation when every entry already has both round1 and
+    /// round2 attempted today: today's two-round duty is done, so the
+    /// auto-pop has nothing useful to do (mistakes mode is
+    /// first-attempt-only — repeats wouldn't change state). `/mistakes`
+    /// can call [`Self::ensure_session_force`] to override this and
+    /// re-enter for extra practice.
     pub fn ensure_session(&mut self, today_local: NaiveDate) -> bool {
+        self.ensure_session_inner(today_local, false)
+    }
+
+    /// Like [`Self::ensure_session`], but ignores the "today's two
+    /// rounds already attempted" early-out. Use this for explicit
+    /// user-driven entry (e.g. `/mistakes`) where the user wants to
+    /// re-practice even though today's already counted.
+    pub fn ensure_session_force(&mut self, today_local: NaiveDate) -> bool {
+        self.ensure_session_inner(today_local, true)
+    }
+
+    fn ensure_session_inner(&mut self, today_local: NaiveDate, force: bool) -> bool {
         // Drop stale session from a previous day.
         if let Some(s) = &self.session {
             if s.started_on != today_local {
@@ -281,6 +300,15 @@ impl MistakeBook {
             }
         }
         if self.entries.is_empty() {
+            return false;
+        }
+        // Drop any session whose work is already done today. Runs
+        // before the `session.is_some()` resume short-circuit so it
+        // also reclaims phantom sessions persisted by older builds
+        // that auto-recreated a fresh round-1 session after today's
+        // two rounds were already completed.
+        if !force && self.all_entries_today_attempted(today_local) {
+            self.session = None;
             return false;
         }
         if self.session.is_some() {
@@ -294,6 +322,17 @@ impl MistakeBook {
             round1_completed: false,
         });
         true
+    }
+
+    /// True iff every entry has both today's rounds (round1 and round2)
+    /// attempted with `today_local`. Vacuously true on empty entries —
+    /// callers should guard against that case if they need to.
+    fn all_entries_today_attempted(&self, today_local: NaiveDate) -> bool {
+        self.entries.iter().all(|e| {
+            e.today
+                .as_ref()
+                .is_some_and(|t| t.date == today_local && t.round1.is_some() && t.round2.is_some())
+        })
     }
 
     /// Returns the drill that should be presented now, advancing past any
