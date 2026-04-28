@@ -954,8 +954,30 @@ impl App {
             .study
             .current_course()
             .map(|c| crate::ui::shell_chrome::ProgressSummary::compute(c, self.study.progress()));
+        let badge = if matches!(self.study.mode(), crate::ui::study::StudyMode::Mistakes) {
+            self.mistakes.session_progress().and_then(|p| {
+                let drill_ref = self.mistakes.current_drill_ref()?;
+                let streak = self
+                    .mistakes
+                    .entries
+                    .iter()
+                    .find(|e| e.drill == drill_ref)
+                    .map(|e| e.streak_days)
+                    .unwrap_or(0);
+                Some(crate::ui::shell_chrome::MistakesBadge {
+                    round: p.round,
+                    total_rounds: 2,
+                    index: p.index,
+                    total: p.total,
+                    streak_days: streak,
+                    streak_target: 3,
+                })
+            })
+        } else {
+            None
+        };
         let status_line =
-            crate::ui::shell_chrome::build_status_line(area.width, course_id, summary);
+            crate::ui::shell_chrome::build_status_line_with_mistakes(area.width, course_id, summary, badge);
         frame.render_widget(ratatui::widgets::Paragraph::new(status_line), status_area);
 
         inner

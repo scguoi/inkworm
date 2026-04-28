@@ -227,6 +227,62 @@ impl ShellHeader {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct MistakesBadge {
+    pub round: u8,
+    pub total_rounds: u8,
+    pub index: usize,    // 0-based; rendered as index+1
+    pub total: usize,
+    pub streak_days: u32,
+    pub streak_target: u32,
+}
+
+pub fn build_status_line_with_mistakes(
+    width: u16,
+    course_id: Option<&str>,
+    summary: Option<ProgressSummary>,
+    badge: Option<MistakesBadge>,
+) -> Line<'static> {
+    let style = Style::default().fg(Color::Yellow);
+    if let Some(b) = badge {
+        let label = format!(
+            "错题本 · 第 {}/{} 轮 · {}/{} · ({}/{})",
+            b.round, b.total_rounds, b.index + 1, b.total, b.streak_days, b.streak_target,
+        );
+        let pad = (width as usize).saturating_sub(label.chars().count());
+        let mut spans = vec![Span::styled(label, style)];
+        if pad > 0 {
+            spans.push(Span::raw(" ".repeat(pad)));
+        }
+        return Line::from(spans);
+    }
+    build_status_line(width, course_id, summary)
+}
+
+#[cfg(test)]
+mod mistakes_top_bar_tests {
+    use super::*;
+
+    #[test]
+    fn mistakes_badge_shows_round_and_progress() {
+        let line = build_status_line_with_mistakes(
+            80,
+            Some("course-x"),
+            None,
+            Some(MistakesBadge {
+                round: 1,
+                total_rounds: 2,
+                index: 3,
+                total: 12,
+                streak_days: 2,
+                streak_target: 3,
+            }),
+        );
+        let s: String = line.spans.iter().map(|sp| sp.content.to_string()).collect();
+        assert!(s.contains("错题本 · 第 1/2 轮 · 4/12 · (2/3)"));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

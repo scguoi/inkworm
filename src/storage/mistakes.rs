@@ -343,6 +343,14 @@ impl MistakeBook {
         let _ = self.peek_current_drill();
     }
 
+    /// Non-mutating peek for read-only contexts (e.g. UI rendering).
+    /// Returns the current drill_ref by raw lookup (does NOT skip
+    /// cleared/orphaned slots — for that use the &mut peek_current_drill).
+    pub fn current_drill_ref(&self) -> Option<DrillRef> {
+        let s = self.session.as_ref()?;
+        s.queue.get(s.next_index).cloned()
+    }
+
     /// Current round/index/length for top-bar rendering. None if no
     /// session or session just completed.
     pub fn session_progress(&self) -> Option<SessionProgress> {
