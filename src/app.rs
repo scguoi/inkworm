@@ -17,7 +17,7 @@ use crate::tts::{should_speak, OutputKind};
 use crate::ui::error_banner::user_message;
 use crate::ui::generate::{GenerateSubstate, PastingState, ResultState, RunningState};
 use crate::ui::palette::{Command, PaletteState};
-use crate::ui::study::{FeedbackState, StudyState};
+use crate::ui::study::{FeedbackState, StudyMode, StudyState};
 use crate::ui::task_msg::{GenerateProgress, TaskMsg};
 
 pub enum Screen {
@@ -70,7 +70,7 @@ impl App {
         task_tx: mpsc::Sender<TaskMsg>,
         speaker: Arc<dyn Speaker>,
     ) -> Self {
-        Self {
+        let mut app = Self {
             screen: Screen::Study,
             should_quit: false,
             study: StudyState::new(course, progress),
@@ -95,7 +95,66 @@ impl App {
             doctor_results: None,
             info_banner: None,
             shell_header: crate::ui::shell_chrome::ShellHeader::detect(),
+        };
+        app.startup_apply_mistakes_session();
+        app
+    }
+
+    fn startup_apply_mistakes_session(&mut self) {
+        let today = self.clock.today_local();
+        self.mistakes.ensure_session(today);
+        if self.mistakes.peek_current_drill().is_some() {
+            self.enter_mistakes_mode_at_current_drill();
         }
+        let _ = self.mistakes.save(&self.data_paths.mistakes_file);
+    }
+
+    fn load_course_owned(&self, id: &str) -> Option<crate::storage::course::Course> {
+        crate::storage::course::load_course(&self.data_paths.courses_dir, id).ok()
+    }
+
+    /// Switches the study screen into Mistakes mode and points at the
+    /// current session's drill. If the drill's course can't be loaded,
+    /// purges that course's entries and recurses to the next drill.
+    fn enter_mistakes_mode_at_current_drill(&mut self) {
+        let Some(drill_ref) = self.mistakes.peek_current_drill() else {
+            return;
+        };
+        let course = match self.load_course_owned(&drill_ref.course_id) {
+            Some(c) => c,
+            None => {
+                self.mistakes.purge_course(&drill_ref.course_id);
+                let _ = self.mistakes.save(&self.data_paths.mistakes_file);
+                if self.mistakes.peek_current_drill().is_some() {
+                    self.enter_mistakes_mode_at_current_drill();
+                }
+                return;
+            }
+        };
+        let sentence_idx = course
+            .sentences
+            .iter()
+            .position(|s| s.order == drill_ref.sentence_order)
+            .unwrap_or(0);
+        let drill_idx = course
+            .sentences
+            .get(sentence_idx)
+            .and_then(|s| s.drills.iter().position(|d| d.stage == drill_ref.drill_stage))
+            .unwrap_or(0);
+        let progress_clone = self.study.progress().clone();
+        let mut new_state = StudyState::new(Some(course), progress_clone);
+        new_state.set_mode(StudyMode::Mistakes);
+        new_state.set_current_drill(sentence_idx, drill_idx);
+        self.study = new_state;
+    }
+
+    fn enter_course_mode(&mut self) {
+        let active_id = self.study.progress().active_course_id.clone();
+        let course = active_id.and_then(|id| self.load_course_owned(&id));
+        let progress = self.study.progress().clone();
+        let mut new_state = StudyState::new(course, progress);
+        new_state.set_mode(StudyMode::Course);
+        self.study = new_state;
     }
 
     pub fn open_wizard(&mut self, origin: crate::ui::config_wizard::WizardOrigin) {

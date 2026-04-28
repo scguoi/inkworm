@@ -297,6 +297,15 @@ impl StudyState {
     pub fn set_mode(&mut self, mode: StudyMode) {
         self.mode = mode;
     }
+
+    pub fn set_current_drill(&mut self, sentence_idx: usize, drill_idx: usize) {
+        self.sentence_idx = sentence_idx;
+        self.drill_idx = drill_idx;
+        self.input.clear();
+        self.feedback = FeedbackState::Typing;
+        self.correct_at = None;
+        self.first_attempt_pending = true;
+    }
 }
 
 /// Per-character normalization matching `judge::normalize`'s character-level
