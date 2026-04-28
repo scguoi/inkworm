@@ -711,6 +711,8 @@ impl App {
                         self.study.progress_mut().courses.remove(&course_id);
                         self.study.progress_mut().active_course_id = None;
                         let _ = self.study.progress().save(&self.data_paths.progress_file);
+                        self.mistakes.purge_course(&course_id);
+                        self.save_mistakes();
                         self.study = StudyState::new(None, self.study.progress().clone());
                     }
                 }
