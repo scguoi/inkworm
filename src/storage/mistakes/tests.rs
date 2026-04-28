@@ -1,6 +1,6 @@
 use super::*;
-use std::collections::BTreeMap;
 use chrono::{DateTime, TimeZone, Utc};
+use std::collections::BTreeMap;
 
 fn drill_a() -> DrillRef {
     DrillRef {
@@ -74,14 +74,16 @@ fn normal_attempt_on_drill_already_in_entries_is_noop_for_book_state() {
 
 #[test]
 fn promoted_drill_appends_to_active_session_queue() {
-    let mut b = MistakeBook::default();
-    b.session = Some(SessionState {
-        started_on: chrono::NaiveDate::from_ymd_opt(2026, 4, 27).unwrap(),
-        queue: vec![drill_b()],
-        current_round: 1,
-        next_index: 0,
-        round1_completed: false,
-    });
+    let mut b = MistakeBook {
+        session: Some(SessionState {
+            started_on: chrono::NaiveDate::from_ymd_opt(2026, 4, 27).unwrap(),
+            queue: vec![drill_b()],
+            current_round: 1,
+            next_index: 0,
+            round1_completed: false,
+        }),
+        ..Default::default()
+    };
     b.record_normal_attempt(&drill_a(), false, now());
     let o = b.record_normal_attempt(&drill_a(), false, now());
     assert!(o.promoted);
@@ -100,7 +102,10 @@ fn entries_sorted_by_entered_at_then_drill_ref() {
     b.record_normal_attempt(&drill_a(), false, later);
     b.record_normal_attempt(&drill_a(), false, later);
     assert_eq!(
-        b.entries.iter().map(|e| e.drill.clone()).collect::<Vec<_>>(),
+        b.entries
+            .iter()
+            .map(|e| e.drill.clone())
+            .collect::<Vec<_>>(),
         vec![drill_b(), drill_a()]
     );
 }
@@ -112,8 +117,10 @@ fn drill_key_is_pipe_joined() {
 
 #[test]
 fn empty_book_round_trips() {
-    let mut b = MistakeBook::default();
-    b.schema_version = MISTAKES_SCHEMA_VERSION;
+    let b = MistakeBook {
+        schema_version: MISTAKES_SCHEMA_VERSION,
+        ..Default::default()
+    };
     let json = serde_json::to_string(&b).unwrap();
     let b2: MistakeBook = serde_json::from_str(&json).unwrap();
     assert_eq!(b, b2);
@@ -499,7 +506,13 @@ fn prune_orphans_drops_entries_for_unknown_courses_or_stages() {
         now(),
     ));
 
-    b.prune_orphans(|id| if id == "course-a" { Some(&course) } else { None });
+    b.prune_orphans(|id| {
+        if id == "course-a" {
+            Some(&course)
+        } else {
+            None
+        }
+    });
     assert_eq!(b.entries.len(), 1);
     assert_eq!(b.entries[0].drill, drill_a());
 }
@@ -539,7 +552,13 @@ fn prune_orphans_also_prunes_session_queue_and_adjusts_next_index() {
         next_index: 1, // pointing at drill_b
         round1_completed: false,
     });
-    b.prune_orphans(|id| if id == "course-b" { Some(&course_b_only) } else { None });
+    b.prune_orphans(|id| {
+        if id == "course-b" {
+            Some(&course_b_only)
+        } else {
+            None
+        }
+    });
     let s = b.session.as_ref().unwrap();
     assert_eq!(s.queue, vec![drill_b()]);
     assert_eq!(s.next_index, 0);

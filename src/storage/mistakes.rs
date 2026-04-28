@@ -246,8 +246,7 @@ impl MistakeBook {
 
         // Evaluate qualifying day: both rounds correct AND not already
         // counted today.
-        let both_correct =
-            matches!(today.round1, Some(true)) && matches!(today.round2, Some(true));
+        let both_correct = matches!(today.round1, Some(true)) && matches!(today.round2, Some(true));
         if both_correct && entry.last_qualified_date != Some(today_local) {
             entry.streak_days += 1;
             entry.last_qualified_date = Some(today_local);
@@ -395,7 +394,10 @@ impl MistakeBook {
             else {
                 return false;
             };
-            sentence.drills.iter().any(|d| d.stage == e.drill.drill_stage)
+            sentence
+                .drills
+                .iter()
+                .any(|d| d.stage == e.drill.drill_stage)
         });
         // Also prune session queue: any drill whose entry is gone is now an
         // orphan. Use the same clean 2-pass retain pattern as `purge_course`.

@@ -229,7 +229,9 @@ impl StudyState {
         if self.feedback != FeedbackState::Correct {
             return false;
         }
-        let Some(t) = self.correct_at else { return false };
+        let Some(t) = self.correct_at else {
+            return false;
+        };
         now.signed_duration_since(t).num_milliseconds() >= AUTO_ADVANCE_DELAY_MS
     }
 

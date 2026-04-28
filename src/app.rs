@@ -62,6 +62,7 @@ pub struct App {
 }
 
 impl App {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         course: Option<Course>,
         progress: Progress,
@@ -978,8 +979,9 @@ impl App {
         } else {
             None
         };
-        let status_line =
-            crate::ui::shell_chrome::build_status_line_with_mistakes(area.width, course_id, summary, badge);
+        let status_line = crate::ui::shell_chrome::build_status_line_with_mistakes(
+            area.width, course_id, summary, badge,
+        );
         frame.render_widget(ratatui::widgets::Paragraph::new(status_line), status_area);
 
         inner

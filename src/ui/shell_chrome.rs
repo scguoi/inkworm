@@ -231,7 +231,7 @@ impl ShellHeader {
 pub struct MistakesBadge {
     pub round: u8,
     pub total_rounds: u8,
-    pub index: usize,    // 0-based; rendered as index+1
+    pub index: usize, // 0-based; rendered as index+1
     pub total: usize,
     pub streak_days: u32,
     pub streak_target: u32,
@@ -247,7 +247,12 @@ pub fn build_status_line_with_mistakes(
     if let Some(b) = badge {
         let label = format!(
             "错题本 · 第 {}/{} 轮 · {}/{} · ({}/{})",
-            b.round, b.total_rounds, b.index + 1, b.total, b.streak_days, b.streak_target,
+            b.round,
+            b.total_rounds,
+            b.index + 1,
+            b.total,
+            b.streak_days,
+            b.streak_target,
         );
         let pad = (width as usize).saturating_sub(label.chars().count());
         let mut spans = vec![Span::styled(label, style)];

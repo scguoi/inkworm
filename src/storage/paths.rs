@@ -76,6 +76,9 @@ mod tests {
     #[test]
     fn from_root_sets_mistakes_file() {
         let p = DataPaths::for_tests(PathBuf::from("/tmp/inkworm-test"));
-        assert_eq!(p.mistakes_file, PathBuf::from("/tmp/inkworm-test/mistakes.json"));
+        assert_eq!(
+            p.mistakes_file,
+            PathBuf::from("/tmp/inkworm-test/mistakes.json")
+        );
     }
 }
