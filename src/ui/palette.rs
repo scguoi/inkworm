@@ -72,6 +72,13 @@ pub const COMMANDS: &[Command] = &[
         takes_args: false,
     },
     Command {
+        name: "mistakes",
+        aliases: &[],
+        description: "Practice the mistakes book",
+        available: true,
+        takes_args: false,
+    },
+    Command {
         name: "doctor",
         aliases: &[],
         description: "Health check",

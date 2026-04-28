@@ -842,6 +842,17 @@ impl App {
                 }
             }
             "logs" => self.execute_logs(),
+            "mistakes" => {
+                let today = self.clock.today_local();
+                self.mistakes.ensure_session(today);
+                self.save_mistakes();
+                if self.mistakes.peek_current_drill().is_some() {
+                    self.enter_mistakes_mode_at_current_drill();
+                    self.speak_current_drill();
+                } else {
+                    self.info_banner = Some("🎉 今日无错题".into());
+                }
+            }
             "doctor" => self.execute_doctor(),
             _ => {}
         }
