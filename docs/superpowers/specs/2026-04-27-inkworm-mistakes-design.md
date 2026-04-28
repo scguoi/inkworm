@@ -31,9 +31,9 @@
 | 12 | Session 续传 | drill 级 checkpoint，跨启动续；跨天的旧 session 失效 |
 | 13 | "今天" 归属 | session 是否完成以 `started_on` 为准；drill 作答日按作答时刻的本地日期记 |
 | 14 | 中途新错题 | 追加到 session.queue 尾部；round1 中追加 → 两轮都扫到；round1 完成后追加 → 仅 round2，当天不可能合格 +1 |
-| 15 | 用户控制 | 可 Esc 退出；当天再开仍自动弹直到两轮完成；palette 提供 `/mistakes` 主动进 |
+| 15 | 用户控制 | 可 Esc 退出；当天再开仍自动弹直到**两轮都已作答**（不论对错）；之后再开当天落到正常学习不打扰；palette 提供 `/mistakes` 主动进，可重复进入再练（受 §3.3.2 约束） |
 | 16 | 空错题本 | 静默跳过，不打扰 |
-| 17 | UI | 复用 study 屏，顶栏显示 `错题本 · R{N}/2 · idx/len`；entry 旁标 `(streak/3)` |
+| 17 | UI | 复用 study 屏，顶栏显示 `Review · R{N}/2 · idx/len · (streak/3)`（用英文降低肩窥可识别度） |
 | 18 | Drill 顺序 | (entered_at ASC, course_id, sentence_order, drill_stage)；两轮一致 |
 
 ## 2. 数据模型
@@ -183,20 +183,36 @@ pub struct SessionState {
 
 ### 3.3 启动决策
 
+启动路径调用 `MistakeBook::ensure_session(today)`（非 force），它在创建 / 续传 session 之前依次执行：
+
 ```
 load mistakes.json  // 缺失 → empty book
 
 let today = clock.today_local();
 
+// 1) 跨天 session 失效
 if let Some(s) = &mistakes.session {
     if s.started_on != today {
-        mistakes.session = None;       // 跨天 session 失效
+        mistakes.session = None;
     }
 }
 
 if mistakes.entries.is_empty() {
     // 静默；进 StudyMode::Course
-} else if mistakes.session.is_none() {
+}
+// 2) 今日两轮已答尽 → 不再自动弹（含已落盘的 phantom session 一并回收）
+else if mistakes.entries.iter().all(|e| {
+    e.today.as_ref().is_some_and(|t| {
+        t.date == today
+            && t.round1.is_some()
+            && t.round2.is_some()
+    })
+}) {
+    mistakes.session = None;       // 防御性回收 phantom session
+    // 进 StudyMode::Course
+}
+// 3) 没活跃 session 且今日还有未答轮 → 新建
+else if mistakes.session.is_none() {
     mistakes.session = Some(SessionState {
         started_on: today,
         queue: mistakes.entries.iter().map(|e| e.drill.clone()).collect(),
@@ -205,13 +221,23 @@ if mistakes.entries.is_empty() {
         round1_completed: false,
     });
     enter StudyMode::Mistakes;
-} else {
-    // 同日未完成 → 续 session
+}
+// 4) 同日未完成 → 续 session
+else {
     enter StudyMode::Mistakes;
 }
 
 if changed { save_atomic(mistakes_path, &mistakes); }
 ```
+
+#### 3.3.1 为什么早退分支 (2) 必要
+
+- "首次为准"（决策 11）让 round1/round2 写入后不可改写；当天两轮都已写入时，无论用户再怎么作答，今日 streak 与 entries 都不会再改变 —— 强行重建一个 round 1 / index 0 的 session 只是把用户拽回错题本却什么都改不了。
+- 该分支也兼顾"老二进制（缺 (2) 检查）写入的 phantom session"：即便 `started_on == today` 与 entries 非空都成立，只要今日已答尽，启动时也直接清空 `session` 并落盘，把过去的脏状态自我清除。
+
+#### 3.3.2 与 `/mistakes` 命令的关系
+
+`/mistakes` palette 调用 `ensure_session_force(today)`，**跳过分支 (2)** —— 用户主动想再练一下也没问题（虽然今日 streak 不会再变，主要服务肌肉记忆 / 复读）。无 entries 时仍弹空错题本 banner。
 
 ### 3.4 课程删除时的清理
 
@@ -254,18 +280,20 @@ impl StudyState {
 | 模式 | 顶栏内容（示例） |
 |---|---|
 | Course | 现有渲染 |
-| Mistakes | `错题本 · 第 1/2 轮 · 3/12` 后接当前 drill 的 `(streak/3)` 小标 |
+| Mistakes | `Review · R1/2 · 3/12 · (streak/3)` |
 
-错题本完成 / drill 清理 → 沿用现有 `info_banner` 显示一次性提示（"今日错题已完成 ✓"、"`<drill>` 已从错题本清出"）。
+> 顶栏 / banner 文案统一用英文，避免与课程区域的中英对照视觉冲突，也降低肩窥时被识别为"错题本"的可能性。
+
+错题本完成 / drill 清理 → 沿用现有 `info_banner` 显示一次性提示（如 `Review complete for today ✓`、`<course> stage <n> cleared ✓`）。
 
 ### 4.3 操作
 
 | 来源 | 操作 | 行为 |
 |---|---|---|
-| Mistakes mode | Esc | session 状态写盘；切回 `StudyMode::Course`；可通过 `/mistakes` 或下次打开续 |
-| Course mode | palette `/mistakes` | 若 entries 空 → banner "🎉 今日无错题" 留在 Course；否则按 §3.3 启动 / 续 session 进 Mistakes |
-| Mistakes mode | session 自然完成 | 自动切回 Course；banner 显示完成提示 + 剩余清理进度 |
-| 启动 | 见 §3.3 | 自动决策 |
+| Mistakes mode | Esc | session 状态写盘；切回 `StudyMode::Course`；banner `Review paused (resume with /mistakes)`；可通过 `/mistakes` 或下次打开续（§3.3） |
+| Course mode | palette `/mistakes` | 若 entries 空 → banner `🎉 No reviews today` 留在 Course；否则调用 `ensure_session_force` 启动 / 续 session 进 Mistakes |
+| Mistakes mode | session 自然完成 | 自动切回 Course；banner `Review complete for today ✓` |
+| 启动 | 见 §3.3 | 调用 `ensure_session`（非 force）；今日已答尽则不打扰 |
 
 ### 4.4 文件级改动清单
 
@@ -294,6 +322,9 @@ impl StudyState {
 - Session 推进：next_index 增长、轮次切换、round1 → round2 边界
 - 中途 append：round1 中追加 → 两轮都扫到；round1 完成后追加 → 仅 round2
 - Esc / 跨天后续 session 行为
+- `ensure_session` 早退（§3.3 分支 2）：今日两轮已答尽不重建；包含 round1=Some(false)+round2=Some(true) 这种"答了但没合格"的场景
+- `ensure_session` 回收 phantom session：早退分支也清掉 `started_on==today` 但今日已答尽的脏 session
+- `ensure_session_force` 即使今日已答尽仍创建 session（`/mistakes` 入口）
 - `purge_course`：从三处同步移除，`next_index` 校正
 - 孤儿过滤：load 时跳过指向不存在 course / sentence / stage 的 entry
 - 序列化往返；缺失文件 → 默认空 book；schema 字段缺失/0 → 升级为 1
@@ -318,7 +349,7 @@ impl StudyState {
 |---|---|---|
 | 1 | 老用户升级（无 mistakes.json）| 视为空 book，不影响现有体验 |
 | 2 | mistakes.json 解析失败 | 备份重命名为 `mistakes.json.bak.{ts}` 并以空 book 启动；error banner 一次性提示 |
-| 3 | 错题本启动后唯一一题被清出（streak=3）| 立即退到 Course mode，banner "今日错题清理完毕" |
+| 3 | 错题本启动后唯一一题被清出（streak=3）| 立即退到 Course mode，banner `<course> stage <n> cleared ✓` |
 | 4 | 中途课程被删（DeleteConfirm 触发 purge）| 错题本 / session 同步清理；当前 drill 属于被删课程 → 跳到下一题；若 queue 空 → 退到 Course |
 | 5 | 同一 drill 在 round2 中追加 | 不抛错；today.round1 保持 None；当天 streak 不 +1 |
 | 6 | 课程被 LLM 重新生成、stage 变了（drill_ref 失效）| 视为孤儿 → 从 entries / queue 移出；warning log；不弹错 |
