@@ -89,6 +89,11 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
+    // One-shot migration: flat courses/*.json → courses/yyyy-mm/dd-rest.json.
+    // Idempotent on subsequent runs. Fatal on IO error: a partial migration
+    // leaves harder-to-reason-about state than a clean abort.
+    inkworm::storage::migrate::migrate_courses_to_yyyy_mm(&paths.courses_dir, &mut boot_warnings)?;
+
     // Defensive: drop entries pointing at courses/sentences/stages that no
     // longer exist (e.g. user manually deleted a course file, or an LLM
     // regenerated a course with different sentence/stage shape). Spec §3.4.
