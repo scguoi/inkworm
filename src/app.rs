@@ -165,6 +165,7 @@ impl App {
         new_state.set_mode(StudyMode::Mistakes);
         new_state.set_current_drill(sentence_idx, drill_idx);
         self.study = new_state;
+        self.speak_current_drill();
     }
 
     fn save_mistakes(&mut self) {
