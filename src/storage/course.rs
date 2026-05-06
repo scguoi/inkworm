@@ -380,14 +380,24 @@ mod tests {
                 created_at: chrono::Utc.with_ymd_and_hms(2026, 5, 6, 0, 0, 0).unwrap(),
                 model: "test".into(),
             },
-            sentences: vec![sentence(1), sentence(2), sentence(3), sentence(4), sentence(5)],
+            sentences: vec![
+                sentence(1),
+                sentence(2),
+                sentence(3),
+                sentence(4),
+                sentence(5),
+            ],
         }
     }
 
     #[test]
     fn sample_course_passes_validate() {
         let c = sample_course();
-        assert!(c.validate().is_empty(), "fixture invalid: {:?}", c.validate());
+        assert!(
+            c.validate().is_empty(),
+            "fixture invalid: {:?}",
+            c.validate()
+        );
     }
 
     #[test]
@@ -396,7 +406,8 @@ mod tests {
         c.id = "context-management-in-claude-code".into();
         let errs = c.validate();
         assert!(
-            errs.iter().any(|e| matches!(e, ValidationError::IdMissingDatePrefix(_))),
+            errs.iter()
+                .any(|e| matches!(e, ValidationError::IdMissingDatePrefix(_))),
             "expected IdMissingDatePrefix, got {errs:?}"
         );
     }
@@ -406,7 +417,9 @@ mod tests {
         let c = sample_course();
         let errs = c.validate();
         assert!(
-            !errs.iter().any(|e| matches!(e, ValidationError::IdMissingDatePrefix(_))),
+            !errs
+                .iter()
+                .any(|e| matches!(e, ValidationError::IdMissingDatePrefix(_))),
             "unexpected IdMissingDatePrefix in {errs:?}"
         );
     }
