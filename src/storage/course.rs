@@ -438,6 +438,19 @@ mod tests {
         assert!(!has_yyyy_mm_dd_prefix("foo-2026-05-06-bar"));
         assert!(!has_yyyy_mm_dd_prefix("2026/05/06-foo"));
     }
+
+    #[test]
+    fn course_path_derives_yyyy_mm_dd_layout() {
+        use std::path::PathBuf;
+        let p = course_path(std::path::Path::new("/tmp/courses"), "2026-05-06-foo-bar").unwrap();
+        assert_eq!(p, PathBuf::from("/tmp/courses/2026-05/06-foo-bar.json"));
+    }
+
+    #[test]
+    fn course_path_rejects_id_without_prefix() {
+        let err = course_path(std::path::Path::new("/tmp/c"), "foo").unwrap_err();
+        assert!(matches!(err, StorageError::InvalidId(_)));
+    }
 }
 
 #[cfg(test)]
@@ -523,6 +536,8 @@ pub enum StorageError {
     Json(#[from] serde_json::Error),
     #[error("course not found: {0}")]
     NotFound(String),
+    #[error("invalid course id (must match yyyy-mm-dd-<slug>): {0:?}")]
+    InvalidId(String),
 }
 
 #[derive(Debug, Clone)]
@@ -532,6 +547,23 @@ pub struct CourseMeta {
     pub created_at: DateTime<Utc>,
     pub total_sentences: usize,
     pub total_drills: usize,
+}
+
+/// Derives the on-disk path for a course id of shape `yyyy-mm-dd-<rest>`.
+///
+/// Returns `StorageError::InvalidId` if the id does not begin with that
+/// prefix; this guards the byte-slice indices below so the function never
+/// panics on a malformed id supplied by an external caller.
+fn course_path(
+    courses_dir: &std::path::Path,
+    id: &str,
+) -> Result<std::path::PathBuf, StorageError> {
+    if !has_yyyy_mm_dd_prefix(id) {
+        return Err(StorageError::InvalidId(id.to_string()));
+    }
+    let yyyy_mm = &id[0..7]; // "2026-05"
+    let file = format!("{}.json", &id[8..]); // "06-foo-bar.json"
+    Ok(courses_dir.join(yyyy_mm).join(file))
 }
 
 pub fn list_courses(courses_dir: &std::path::Path) -> Result<Vec<CourseMeta>, StorageError> {
