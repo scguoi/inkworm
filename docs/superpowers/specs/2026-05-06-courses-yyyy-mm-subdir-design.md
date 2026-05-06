@@ -50,7 +50,7 @@ Add to `src/storage/course.rs` (private):
 ```rust
 fn course_path(courses_dir: &Path, id: &str) -> Result<PathBuf, StorageError> {
     // Length + prefix shape guard (defense-in-depth; validate() also enforces).
-    if !ID_DATE_PREFIX_RE.is_match(id) {
+    if !has_yyyy_mm_dd_prefix(id) {
         return Err(StorageError::InvalidId(id.to_string()));
     }
     let yyyy_mm = &id[0..7];                 // "2026-05"
@@ -116,13 +116,15 @@ Acceptance criteria:
 Extend `Course::validate()` (`src/storage/course.rs`):
 
 ```rust
-if !ID_DATE_PREFIX_RE.is_match(&self.id) {
+if !has_yyyy_mm_dd_prefix(&self.id) {
     errs.push(ValidationError::IdMissingDatePrefix(self.id.clone()));
 }
 ```
 
-where `ID_DATE_PREFIX_RE` matches `^\d{4}-\d{2}-\d{2}-` (a `regex::Regex`
-in a `LazyLock`).
+where `has_yyyy_mm_dd_prefix` is a `pub(crate)` byte-level helper that
+checks `^\d{4}-\d{2}-\d{2}-` without taking a `regex` crate dependency
+(ASCII digits only; the id is always ASCII kebab-case by construction).
+The same helper is reused by `course_path` and `src/storage/migrate.rs`.
 
 ### 2.2 New `ValidationError` variant
 
