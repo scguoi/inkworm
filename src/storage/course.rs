@@ -451,6 +451,40 @@ mod tests {
         let err = course_path(std::path::Path::new("/tmp/c"), "foo").unwrap_err();
         assert!(matches!(err, StorageError::InvalidId(_)));
     }
+
+    #[test]
+    fn save_then_load_roundtrip_uses_yyyy_mm_subdir() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let mut c = sample_course();
+        c.id = "2026-05-06-roundtrip".into();
+        save_course(dir.path(), &c).unwrap();
+
+        let written = dir.path().join("2026-05").join("06-roundtrip.json");
+        assert!(written.exists(), "expected file at {written:?}");
+
+        let back = load_course(dir.path(), "2026-05-06-roundtrip").unwrap();
+        assert_eq!(back.id, "2026-05-06-roundtrip");
+    }
+
+    #[test]
+    fn delete_course_removes_yyyy_mm_file() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let mut c = sample_course();
+        c.id = "2026-05-06-todel".into();
+        save_course(dir.path(), &c).unwrap();
+        delete_course(dir.path(), "2026-05-06-todel").unwrap();
+        assert!(!dir.path().join("2026-05").join("06-todel.json").exists());
+    }
+
+    #[test]
+    fn load_course_returns_not_found_for_missing_id() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let err = load_course(dir.path(), "2026-05-06-missing").unwrap_err();
+        assert!(matches!(err, StorageError::NotFound(_)));
+    }
 }
 
 #[cfg(test)]
@@ -554,7 +588,6 @@ pub struct CourseMeta {
 /// Returns `StorageError::InvalidId` if the id does not begin with that
 /// prefix; this guards the byte-slice indices below so the function never
 /// panics on a malformed id supplied by an external caller.
-#[allow(dead_code)] // routed through load/save/delete in the next commit
 fn course_path(
     courses_dir: &std::path::Path,
     id: &str,
@@ -600,7 +633,7 @@ pub fn list_courses(courses_dir: &std::path::Path) -> Result<Vec<CourseMeta>, St
 }
 
 pub fn load_course(courses_dir: &std::path::Path, id: &str) -> Result<Course, StorageError> {
-    let path = courses_dir.join(format!("{id}.json"));
+    let path = course_path(courses_dir, id)?;
     let bytes = std::fs::read(&path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             StorageError::NotFound(id.into())
@@ -617,14 +650,17 @@ pub fn save_course(courses_dir: &std::path::Path, course: &Course) -> Result<(),
         "save_course called with non-kebab-case id: {:?}",
         course.id
     );
+    let path = course_path(courses_dir, &course.id)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let bytes = serde_json::to_vec_pretty(course)?;
-    let path = courses_dir.join(format!("{}.json", course.id));
     write_atomic(&path, &bytes)?;
     Ok(())
 }
 
 pub fn delete_course(courses_dir: &std::path::Path, id: &str) -> Result<(), StorageError> {
-    let path = courses_dir.join(format!("{id}.json"));
+    let path = course_path(courses_dir, id)?;
     std::fs::remove_file(&path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             StorageError::NotFound(id.into())
