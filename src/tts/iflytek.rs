@@ -188,30 +188,65 @@ impl Speaker for IflytekSpeaker {
             }
         }
 
-        let samples = self.stream_ws(text, token).await?;
+        // Retry logic: attempt up to 3 times for network errors
+        let max_retries = 3;
+        let mut last_error = None;
+        for attempt in 1..=max_retries {
+            match self.stream_ws(text, token.clone()).await {
+                Ok(samples) => {
+                    // Clear the handle on clean completion.
+                    if let Ok(mut guard) = self.stream_handle.lock() {
+                        *guard = None;
+                    }
 
-        // Clear the handle on clean completion.
-        if let Ok(mut guard) = self.stream_handle.lock() {
-            *guard = None;
-        }
+                    let duration_ms = start.elapsed().as_millis();
+                    tracing::info!(
+                        text_hash = %text_hash,
+                        cache_hit = false,
+                        duration_ms = duration_ms,
+                        attempt = attempt,
+                        "TTS synthesis completed"
+                    );
 
-        let duration_ms = start.elapsed().as_millis();
-        tracing::info!(
-            text_hash = %text_hash,
-            cache_hit = false,
-            duration_ms = duration_ms,
-            "TTS synthesis completed"
-        );
+                    // Only cache full recordings. Cache-write failure is non-fatal:
+                    // we still want to play the audio we have in memory.
+                    if !samples.is_empty() {
+                        if let Err(e) = wav::write_wav_atomic(&path, &samples) {
+                            tracing::warn!("cache write failed: {e}");
+                        }
+                    }
 
-        // Only cache full recordings. Cache-write failure is non-fatal:
-        // we still want to play the audio we have in memory.
-        if !samples.is_empty() {
-            if let Err(e) = wav::write_wav_atomic(&path, &samples) {
-                eprintln!("tts cache write failed for {}: {e}", path.display());
+                    return self.play_pcm(samples);
+                }
+                Err(e) => {
+                    // Don't retry on cancellation or auth errors
+                    if matches!(e, TtsError::Cancelled | TtsError::Auth(_)) {
+                        return Err(e);
+                    }
+
+                    tracing::warn!(
+                        text_hash = %text_hash,
+                        attempt = attempt,
+                        max_retries = max_retries,
+                        error = %e,
+                        "TTS synthesis failed"
+                    );
+
+                    last_error = Some(e);
+
+                    // Don't sleep after the last attempt
+                    if attempt < max_retries {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(
+                            500 * attempt as u64,
+                        ))
+                        .await;
+                    }
+                }
             }
         }
 
-        self.play_pcm(samples)
+        // All retries exhausted
+        Err(last_error.unwrap())
     }
 
     fn cancel(&self) {

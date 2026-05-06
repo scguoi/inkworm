@@ -42,17 +42,48 @@ fn status_display_all_fields() {
 }
 
 #[test]
-fn three_strikes_disables_session() {
+fn five_strikes_disables_session() {
     let mut failure_count = 0u32;
     let mut session_disabled = false;
 
-    for _ in 0..3 {
+    for _ in 0..5 {
         failure_count += 1;
-        if failure_count >= 3 {
+        if failure_count >= 5 {
             session_disabled = true;
         }
     }
 
     assert!(session_disabled);
-    assert_eq!(failure_count, 3);
+    assert_eq!(failure_count, 5);
+}
+
+#[test]
+fn four_strikes_does_not_disable_session() {
+    let mut failure_count = 0u32;
+    let mut session_disabled = false;
+
+    for _ in 0..4 {
+        failure_count += 1;
+        if failure_count >= 5 {
+            session_disabled = true;
+        }
+    }
+
+    assert!(!session_disabled);
+    assert_eq!(failure_count, 4);
+}
+
+#[test]
+fn success_re_enables_session() {
+    let mut failure_count = 5u32;
+    let mut session_disabled = true;
+
+    // Simulate a successful TTS call
+    failure_count = 0;
+    if session_disabled {
+        session_disabled = false;
+    }
+
+    assert!(!session_disabled);
+    assert_eq!(failure_count, 0);
 }

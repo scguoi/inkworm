@@ -429,12 +429,22 @@ impl App {
             TaskMsg::TtsSpeakResult(result) => match result {
                 Ok(()) => {
                     self.tts_failure_count = 0;
+                    // Re-enable TTS session if it was previously disabled
+                    if self.tts_session_disabled {
+                        self.tts_session_disabled = false;
+                        tracing::info!("TTS session re-enabled after successful synthesis");
+                    }
                 }
-                Err(_) => {
+                Err(e) => {
                     self.tts_failure_count += 1;
-                    if self.tts_failure_count >= 3 {
+                    tracing::warn!(
+                        failure_count = self.tts_failure_count,
+                        error = %e,
+                        "TTS synthesis failed"
+                    );
+                    if self.tts_failure_count >= 5 {
                         self.tts_session_disabled = true;
-                        tracing::warn!("TTS session disabled after 3 consecutive failures");
+                        tracing::warn!("TTS session disabled after 5 consecutive failures");
                     }
                 }
             },
