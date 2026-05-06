@@ -68,6 +68,8 @@ pub enum ValidationError {
     WrongSchemaVersion { expected: u32, actual: u32 },
     #[error("id is empty or not kebab-case: {0:?}")]
     InvalidId(String),
+    #[error("id is missing yyyy-mm-dd- prefix: {0:?}")]
+    IdMissingDatePrefix(String),
     #[error("title length must be 1..=100, got {0}")]
     TitleLength(usize),
     #[error("description length must be ≤300, got {0}")]
@@ -151,6 +153,9 @@ impl Course {
         }
         if !is_kebab_case(&self.id) {
             errs.push(ValidationError::InvalidId(self.id.clone()));
+        }
+        if !has_yyyy_mm_dd_prefix(&self.id) {
+            errs.push(ValidationError::IdMissingDatePrefix(self.id.clone()));
         }
         if self.title.is_empty() || self.title.chars().count() > 100 {
             errs.push(ValidationError::TitleLength(self.title.chars().count()));
@@ -247,6 +252,19 @@ impl Course {
     }
 }
 
+/// True iff `s` starts with `\d{4}-\d{2}-\d{2}-`.
+/// Pure-std byte check (no regex dependency); ASCII digits only.
+pub(crate) fn has_yyyy_mm_dd_prefix(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() >= 11
+        && b[0..4].iter().all(|c| c.is_ascii_digit())
+        && b[4] == b'-'
+        && b[5..7].iter().all(|c| c.is_ascii_digit())
+        && b[7] == b'-'
+        && b[8..10].iter().all(|c| c.is_ascii_digit())
+        && b[10] == b'-'
+}
+
 fn is_kebab_case(s: &str) -> bool {
     if s.is_empty() {
         return false;
@@ -324,6 +342,89 @@ fn is_valid_soundmark(s: &str) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_course() -> Course {
+        use chrono::TimeZone;
+        fn drill(stage: u32, focus: Focus) -> Drill {
+            Drill {
+                stage,
+                focus,
+                chinese: "你好".into(),
+                english: "hi there".into(),
+                soundmark: "/haɪ/ /ðɛər/".into(),
+            }
+        }
+        fn sentence(order: u32) -> Sentence {
+            Sentence {
+                order,
+                drills: vec![
+                    drill(1, Focus::Keywords),
+                    drill(2, Focus::Skeleton),
+                    drill(3, Focus::Full),
+                ],
+            }
+        }
+        Course {
+            schema_version: SCHEMA_VERSION,
+            id: "2026-05-06-sample".into(),
+            title: "Sample".into(),
+            description: None,
+            source: Source {
+                kind: SourceKind::Manual,
+                url: String::new(),
+                created_at: chrono::Utc.with_ymd_and_hms(2026, 5, 6, 0, 0, 0).unwrap(),
+                model: "test".into(),
+            },
+            sentences: vec![sentence(1), sentence(2), sentence(3), sentence(4), sentence(5)],
+        }
+    }
+
+    #[test]
+    fn sample_course_passes_validate() {
+        let c = sample_course();
+        assert!(c.validate().is_empty(), "fixture invalid: {:?}", c.validate());
+    }
+
+    #[test]
+    fn validate_rejects_id_without_yyyy_mm_dd_prefix() {
+        let mut c = sample_course();
+        c.id = "context-management-in-claude-code".into();
+        let errs = c.validate();
+        assert!(
+            errs.iter().any(|e| matches!(e, ValidationError::IdMissingDatePrefix(_))),
+            "expected IdMissingDatePrefix, got {errs:?}"
+        );
+    }
+
+    #[test]
+    fn validate_accepts_id_with_yyyy_mm_dd_prefix() {
+        let c = sample_course();
+        let errs = c.validate();
+        assert!(
+            !errs.iter().any(|e| matches!(e, ValidationError::IdMissingDatePrefix(_))),
+            "unexpected IdMissingDatePrefix in {errs:?}"
+        );
+    }
+
+    #[test]
+    fn has_yyyy_mm_dd_prefix_accepts_well_formed() {
+        assert!(has_yyyy_mm_dd_prefix("2026-05-06-foo"));
+        assert!(has_yyyy_mm_dd_prefix("0000-00-00-x"));
+    }
+
+    #[test]
+    fn has_yyyy_mm_dd_prefix_rejects_malformed() {
+        assert!(!has_yyyy_mm_dd_prefix(""));
+        assert!(!has_yyyy_mm_dd_prefix("2026-05-06"));
+        assert!(!has_yyyy_mm_dd_prefix("2026-5-06-foo"));
+        assert!(!has_yyyy_mm_dd_prefix("foo-2026-05-06-bar"));
+        assert!(!has_yyyy_mm_dd_prefix("2026/05/06-foo"));
+    }
 }
 
 #[cfg(test)]
