@@ -265,6 +265,15 @@ pub(crate) fn has_yyyy_mm_dd_prefix(s: &str) -> bool {
         && b[10] == b'-'
 }
 
+/// True iff `s` matches `\d{4}-\d{2}` (e.g. "2026-05").
+fn is_yyyy_mm_dirname(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 7
+        && b[0..4].iter().all(|c| c.is_ascii_digit())
+        && b[4] == b'-'
+        && b[5..7].iter().all(|c| c.is_ascii_digit())
+}
+
 fn is_kebab_case(s: &str) -> bool {
     if s.is_empty() {
         return false;
@@ -485,6 +494,39 @@ mod tests {
         let err = load_course(dir.path(), "2026-05-06-missing").unwrap_err();
         assert!(matches!(err, StorageError::NotFound(_)));
     }
+
+    #[test]
+    fn list_courses_scans_yyyy_mm_subdirs_and_skips_others() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+
+        // Well-formed file in yyyy-mm/
+        let mut c1 = sample_course();
+        c1.id = "2026-05-06-alpha".into();
+        save_course(dir.path(), &c1).unwrap();
+
+        // Well-formed file in a different month
+        let mut c2 = sample_course();
+        c2.id = "2026-04-01-beta".into();
+        save_course(dir.path(), &c2).unwrap();
+
+        // Stray root-level json (should be ignored)
+        std::fs::write(dir.path().join("stray.json"), b"{}").unwrap();
+
+        // _legacy/ dir with a json (should be ignored)
+        std::fs::create_dir_all(dir.path().join("_legacy")).unwrap();
+        std::fs::write(dir.path().join("_legacy/old.json"), b"{}").unwrap();
+
+        // Non-yyyy-mm subdir (should be ignored)
+        std::fs::create_dir_all(dir.path().join("tmp")).unwrap();
+        std::fs::write(dir.path().join("tmp/junk.json"), b"{}").unwrap();
+
+        let metas = list_courses(dir.path()).unwrap();
+        let ids: Vec<_> = metas.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids.len(), 2, "expected 2 ids, got {ids:?}");
+        assert!(ids.contains(&"2026-05-06-alpha"));
+        assert!(ids.contains(&"2026-04-01-beta"));
+    }
 }
 
 #[cfg(test)]
@@ -608,25 +650,48 @@ pub fn list_courses(courses_dir: &std::path::Path) -> Result<Vec<CourseMeta>, St
     for entry in std::fs::read_dir(courses_dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+        if !path.is_dir() {
             continue;
         }
-        // Skip unreadable or corrupt files silently — one bad file must not
-        // break the whole list page.
-        let Ok(bytes) = std::fs::read(&path) else {
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        let Ok(course) = serde_json::from_slice::<Course>(&bytes) else {
-            continue;
-        };
-        let total_drills = course.sentences.iter().map(|s| s.drills.len()).sum();
-        out.push(CourseMeta {
-            id: course.id,
-            title: course.title,
-            created_at: course.source.created_at,
-            total_sentences: course.sentences.len(),
-            total_drills,
-        });
+        if !is_yyyy_mm_dirname(name) {
+            continue; // skips _legacy/, tmp/, etc.
+        }
+        for sub in std::fs::read_dir(&path)? {
+            let sub = sub?;
+            let sub_path = sub.path();
+            if sub_path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            // Skip unreadable or corrupt files silently — one bad file must
+            // not break the whole list page.
+            let Ok(bytes) = std::fs::read(&sub_path) else {
+                continue;
+            };
+            let Ok(course) = serde_json::from_slice::<Course>(&bytes) else {
+                continue;
+            };
+            // Defensive: id field must match its on-disk location.
+            // Mismatches indicate a manually-placed file; skip with a log.
+            let expected_stem = format!("{}-{}", name, course.id.get(8..).unwrap_or(""));
+            if expected_stem != course.id {
+                tracing::warn!(
+                    "list_courses: id/path mismatch (path={sub_path:?}, id={:?}); skipped",
+                    course.id
+                );
+                continue;
+            }
+            let total_drills = course.sentences.iter().map(|s| s.drills.len()).sum();
+            out.push(CourseMeta {
+                id: course.id,
+                title: course.title,
+                created_at: course.source.created_at,
+                total_sentences: course.sentences.len(),
+                total_drills,
+            });
+        }
     }
     out.sort_by_key(|b| std::cmp::Reverse(b.created_at));
     Ok(out)
