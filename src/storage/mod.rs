@@ -2,6 +2,7 @@
 pub mod atomic;
 pub mod course;
 pub mod failed;
+pub mod icloud;
 pub mod migrate;
 pub mod mistakes;
 pub mod paths;

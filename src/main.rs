@@ -89,6 +89,11 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
+    // If courses_dir is symlinked into iCloud Drive, materialize any dataless
+    // placeholders before we scan. No-op when not in iCloud or all files are
+    // already local; blocks on first cold start while files download.
+    inkworm::storage::icloud::ensure_downloaded(&paths.courses_dir);
+
     // One-shot migration: flat courses/*.json → courses/yyyy-mm/dd-rest.json.
     // Idempotent on subsequent runs. Fatal on IO error: a partial migration
     // leaves harder-to-reason-about state than a clean abort.
