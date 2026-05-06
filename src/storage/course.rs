@@ -554,6 +554,7 @@ pub struct CourseMeta {
 /// Returns `StorageError::InvalidId` if the id does not begin with that
 /// prefix; this guards the byte-slice indices below so the function never
 /// panics on a malformed id supplied by an external caller.
+#[allow(dead_code)] // routed through load/save/delete in the next commit
 fn course_path(
     courses_dir: &std::path::Path,
     id: &str,
