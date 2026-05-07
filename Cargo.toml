@@ -44,7 +44,7 @@ hound = "3"
 
 # TTS live (Plan 6c): WS streaming + local audio playback
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
-rodio = { version = "0.19", default-features = false }
+rodio = { version = "0.19", default-features = false, features = ["mp3"] }
 cpal = "0.15"
 tui-textarea = { version = "0.7.0", features = ["crossterm"] }
 
