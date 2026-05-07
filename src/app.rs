@@ -259,6 +259,7 @@ impl App {
     pub fn speak_current_drill(&self) {
         tracing::debug!("speak_current_drill called");
         self.speaker.cancel();
+        self.bundle_player.cancel();
         if self.tts_session_disabled {
             tracing::debug!("TTS session disabled, skipping");
             return;
@@ -287,6 +288,36 @@ impl App {
         if !should {
             return;
         }
+
+        // Resolve bundle target before borrowing `drill` further. Two
+        // separate `&self.study` borrows are issued sequentially so the
+        // borrow checker is happy.
+        let active_id = self.study.progress().active_course_id.clone();
+        let sentence_order = self.study.current_sentence().map(|s| s.order);
+        let bundle_target: Option<(String, u32, u32)> = match (active_id, sentence_order) {
+            (Some(cid), Some(order)) => Some((cid, order, drill.stage)),
+            _ => None,
+        };
+
+        if let Some((cid, order, stage)) = bundle_target {
+            if let Ok(path) = crate::audio::bundle::bundle_path(
+                &self.data_paths.courses_dir,
+                &cid,
+                order,
+                stage,
+            ) {
+                if path.exists() {
+                    let player = Arc::clone(&self.bundle_player);
+                    tokio::spawn(async move {
+                        if let Err(e) = player.play(&path).await {
+                            tracing::warn!("bundle playback failed: {e}");
+                        }
+                    });
+                    return;
+                }
+            }
+        }
+
         let text = drill.english.clone();
         self.speak_via_tts(text);
     }
