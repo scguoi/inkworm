@@ -300,12 +300,9 @@ impl App {
         };
 
         if let Some((cid, order, stage)) = bundle_target {
-            if let Ok(path) = crate::audio::bundle::bundle_path(
-                &self.data_paths.courses_dir,
-                &cid,
-                order,
-                stage,
-            ) {
+            if let Ok(path) =
+                crate::audio::bundle::bundle_path(&self.data_paths.courses_dir, &cid, order, stage)
+            {
                 if path.exists() {
                     let player = Arc::clone(&self.bundle_player);
                     tokio::spawn(async move {

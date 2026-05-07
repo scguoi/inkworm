@@ -54,21 +54,15 @@ mod tests {
 
     #[test]
     fn bundle_path_yyyy_mm_split() {
-        let p =
-            bundle_path(Path::new("/tmp/courses"), "2026-05-06-foo", 1, 1).unwrap();
-        assert_eq!(
-            p,
-            PathBuf::from("/tmp/courses/2026-05/06-foo/s01-d1.mp3")
-        );
+        let p = bundle_path(Path::new("/tmp/courses"), "2026-05-06-foo", 1, 1).unwrap();
+        assert_eq!(p, PathBuf::from("/tmp/courses/2026-05/06-foo/s01-d1.mp3"));
     }
 
     #[test]
     fn bundle_path_pads_order_to_two_digits() {
-        let p =
-            bundle_path(Path::new("/c"), "2026-05-06-x", 9, 1).unwrap();
+        let p = bundle_path(Path::new("/c"), "2026-05-06-x", 9, 1).unwrap();
         assert!(p.ends_with("s09-d1.mp3"), "got {p:?}");
-        let p =
-            bundle_path(Path::new("/c"), "2026-05-06-x", 12, 3).unwrap();
+        let p = bundle_path(Path::new("/c"), "2026-05-06-x", 12, 3).unwrap();
         assert!(p.ends_with("s12-d3.mp3"), "got {p:?}");
     }
 
