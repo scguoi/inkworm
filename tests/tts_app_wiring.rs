@@ -157,12 +157,12 @@ async fn switch_to_course_speaks_new_course_first_drill() {
 
     let base = std::fs::read_to_string("fixtures/courses/good/minimal.json").unwrap();
     let mut v1: serde_json::Value = serde_json::from_str(&base).unwrap();
-    v1["id"] = serde_json::Value::String("course-a".into());
+    v1["id"] = serde_json::Value::String("2026-04-10-course-a".into());
     let course_a: Course = serde_json::from_value(v1).unwrap();
     save_course(&paths.courses_dir, &course_a).unwrap();
 
     let mut v2: serde_json::Value = serde_json::from_str(&base).unwrap();
-    v2["id"] = serde_json::Value::String("course-b".into());
+    v2["id"] = serde_json::Value::String("2026-04-20-course-b".into());
     v2["sentences"][0]["drills"][0]["english"] =
         serde_json::Value::String("Hello other course".into());
     let course_b: Course = serde_json::from_value(v2).unwrap();
@@ -176,7 +176,7 @@ async fn switch_to_course_speaks_new_course_first_drill() {
     let target_idx = list
         .items
         .iter()
-        .position(|i| i.meta.id == "course-b")
+        .position(|i| i.meta.id == "2026-04-20-course-b")
         .unwrap();
     while app.course_list.as_ref().unwrap().selected != target_idx {
         app.on_input(key(KeyCode::Down));
@@ -189,6 +189,6 @@ async fn switch_to_course_speaks_new_course_first_drill() {
         spoken_snapshot.iter().any(|s| s == "Hello other course"),
         "expected course-b first drill to have been spoken, got {spoken_snapshot:?}"
     );
-    let reloaded = load_course(&paths.courses_dir, "course-b").unwrap();
-    assert_eq!(reloaded.id, "course-b");
+    let reloaded = load_course(&paths.courses_dir, "2026-04-20-course-b").unwrap();
+    assert_eq!(reloaded.id, "2026-04-20-course-b");
 }

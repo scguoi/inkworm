@@ -378,7 +378,7 @@ mod course_crud {
         let env = TestEnv::new();
         let dir = env.home.join("courses");
         std::fs::create_dir_all(&dir).unwrap();
-        let err = load_course(&dir, "does-not-exist").unwrap_err();
+        let err = load_course(&dir, "2026-01-01-does-not-exist").unwrap_err();
         assert!(matches!(err, StorageError::NotFound(_)));
     }
 
@@ -402,7 +402,7 @@ mod course_crud {
         let dir = env.home.join("courses");
         std::fs::create_dir_all(&dir).unwrap();
         assert!(matches!(
-            delete_course(&dir, "no").unwrap_err(),
+            delete_course(&dir, "2026-01-01-no").unwrap_err(),
             StorageError::NotFound(_)
         ));
     }
@@ -455,13 +455,15 @@ mod course_list_meta {
 
     #[test]
     fn list_courses_populates_total_drills() {
+        use inkworm::storage::course::{save_course, Course};
         let dir = tempfile::tempdir().unwrap();
         let json = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("fixtures/courses/good/minimal.json"),
         )
         .unwrap();
-        std::fs::write(dir.path().join("a.json"), &json).unwrap();
+        let course: Course = serde_json::from_str(&json).unwrap();
+        save_course(dir.path(), &course).unwrap();
 
         let metas = list_courses(dir.path()).unwrap();
         assert_eq!(metas.len(), 1);
@@ -472,6 +474,7 @@ mod course_list_meta {
     #[test]
     fn list_courses_sorted_newest_first() {
         use chrono::{TimeZone, Utc};
+        use inkworm::storage::course::{save_course, Course};
 
         let dir = tempfile::tempdir().unwrap();
         let base = std::fs::read_to_string(
@@ -480,20 +483,21 @@ mod course_list_meta {
         )
         .unwrap();
         let mut v: serde_json::Value = serde_json::from_str(&base).unwrap();
-        for (fname, date, id) in [
-            ("old.json", "2026-01-01T00:00:00Z", "old"),
-            ("newest.json", "2026-04-15T00:00:00Z", "newest"),
-            ("mid.json", "2026-03-01T00:00:00Z", "mid"),
+        for (date, id) in [
+            ("2026-01-01T00:00:00Z", "2026-01-01-old"),
+            ("2026-04-15T00:00:00Z", "2026-04-15-newest"),
+            ("2026-03-01T00:00:00Z", "2026-03-01-mid"),
         ] {
             v["id"] = serde_json::Value::String(id.into());
             v["source"]["createdAt"] = serde_json::Value::String(date.into());
-            std::fs::write(dir.path().join(fname), serde_json::to_vec(&v).unwrap()).unwrap();
+            let course: Course = serde_json::from_value(v.clone()).unwrap();
+            save_course(dir.path(), &course).unwrap();
         }
 
         let metas = list_courses(dir.path()).unwrap();
         assert_eq!(
             metas.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
-            vec!["newest", "mid", "old"]
+            vec!["2026-04-15-newest", "2026-03-01-mid", "2026-01-01-old"]
         );
         assert_eq!(
             metas[0].created_at,

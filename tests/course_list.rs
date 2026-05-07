@@ -33,8 +33,8 @@ fn ctrl(c: char) -> Event {
 fn seed_two_courses(paths: &DataPaths) {
     let base = std::fs::read_to_string("fixtures/courses/good/minimal.json").unwrap();
     for (id, date) in [
-        ("course-a", "2026-04-10T00:00:00Z"),
-        ("course-b", "2026-04-20T00:00:00Z"),
+        ("2026-04-10-course-a", "2026-04-10T00:00:00Z"),
+        ("2026-04-20-course-b", "2026-04-20T00:00:00Z"),
     ] {
         let mut v: serde_json::Value = serde_json::from_str(&base).unwrap();
         v["id"] = serde_json::Value::String(id.into());
@@ -83,8 +83,8 @@ fn list_command_opens_overlay_and_sorts_newest_first() {
     assert!(matches!(app.screen, Screen::CourseList));
     let state = app.course_list.as_ref().unwrap();
     assert_eq!(state.items.len(), 2);
-    assert_eq!(state.items[0].meta.id, "course-b"); // newest first
-    assert_eq!(state.items[1].meta.id, "course-a");
+    assert_eq!(state.items[0].meta.id, "2026-04-20-course-b"); // newest first
+    assert_eq!(state.items[1].meta.id, "2026-04-10-course-a");
 }
 
 #[tokio::test]
@@ -105,11 +105,14 @@ async fn switch_course_updates_active_and_returns_to_study() {
     assert!(matches!(app.screen, Screen::Study));
     assert_eq!(
         app.study.progress().active_course_id.as_deref(),
-        Some("course-a")
+        Some("2026-04-10-course-a")
     );
     // Progress file on disk reflects the switch.
     let reloaded = Progress::load(&paths.progress_file).unwrap();
-    assert_eq!(reloaded.active_course_id.as_deref(), Some("course-a"));
+    assert_eq!(
+        reloaded.active_course_id.as_deref(),
+        Some("2026-04-10-course-a")
+    );
 }
 
 #[test]
@@ -120,7 +123,7 @@ fn esc_closes_list_without_changing_active() {
     seed_two_courses(&paths);
 
     let mut progress = Progress::empty();
-    progress.active_course_id = Some("course-a".into());
+    progress.active_course_id = Some("2026-04-10-course-a".into());
     let mut app = make_app(paths, progress);
 
     app.open_course_list();
@@ -130,7 +133,7 @@ fn esc_closes_list_without_changing_active() {
     assert!(matches!(app.screen, Screen::Study));
     assert_eq!(
         app.study.progress().active_course_id.as_deref(),
-        Some("course-a")
+        Some("2026-04-10-course-a")
     );
 }
 

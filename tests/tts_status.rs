@@ -74,6 +74,7 @@ fn four_strikes_does_not_disable_session() {
 }
 
 #[test]
+#[allow(unused_assignments)]
 fn success_re_enables_session() {
     let mut failure_count = 5u32;
     let mut session_disabled = true;
