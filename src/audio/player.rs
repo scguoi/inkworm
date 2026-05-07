@@ -59,6 +59,9 @@ impl BundlePlayer {
         let sink = rodio::Sink::try_new(handle).map_err(|e| BundleError::Audio(e.to_string()))?;
         sink.append(source);
         if let Ok(mut guard) = self.current_sink.lock() {
+            if let Some(old) = guard.take() {
+                old.stop();
+            }
             *guard = Some(sink);
         }
         Ok(())

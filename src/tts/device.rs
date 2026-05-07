@@ -37,16 +37,20 @@ pub fn classify(name: &str) -> OutputKind {
     OutputKind::Unknown
 }
 
-/// Whether TTS should play for the given mode/device/creds combination (spec §7.5).
-pub fn should_speak(mode: TtsOverride, device: OutputKind, has_creds: bool) -> bool {
-    if !has_creds {
-        return false;
-    }
+/// Device + mode gate, creds-agnostic. Returns whether the audio output
+/// is suitable AND the user hasn't explicitly turned playback off.
+/// Used by both bundle and TTS paths uniformly.
+pub fn should_play_bundle(mode: TtsOverride, device: OutputKind) -> bool {
     match mode {
         TtsOverride::On => true,
         TtsOverride::Off => false,
         TtsOverride::Auto => matches!(device, OutputKind::Bluetooth | OutputKind::WiredHeadphones),
     }
+}
+
+/// Whether TTS should play for the given mode/device/creds combination (spec §7.5).
+pub fn should_speak(mode: TtsOverride, device: OutputKind, has_creds: bool) -> bool {
+    has_creds && should_play_bundle(mode, device)
 }
 
 /// Best-effort audio-output detection. Returns `Unknown` on any failure or

@@ -13,7 +13,7 @@ use crate::storage::mistakes::MistakeBook;
 use crate::storage::progress::Progress;
 use crate::storage::DataPaths;
 use crate::tts::speaker::Speaker;
-use crate::tts::{should_speak, OutputKind};
+use crate::tts::{should_play_bundle, OutputKind};
 use crate::ui::error_banner::user_message;
 use crate::ui::generate::{GenerateSubstate, PastingState, ResultState, RunningState};
 use crate::ui::palette::{Command, PaletteState};
@@ -260,10 +260,7 @@ impl App {
         tracing::debug!("speak_current_drill called");
         self.speaker.cancel();
         self.bundle_player.cancel();
-        if self.tts_session_disabled {
-            tracing::debug!("TTS session disabled, skipping");
-            return;
-        }
+
         // Don't speak if course is complete
         if *self.study.phase() == crate::ui::study::StudyPhase::Complete {
             tracing::debug!("Course complete, skipping TTS");
@@ -273,19 +270,17 @@ impl App {
             tracing::debug!("No current drill, skipping");
             return;
         };
-        let should = should_speak(
-            self.config.tts.r#override,
-            self.current_device,
-            self.tts_has_creds(),
-        );
+
+        // Device + mode gate applies uniformly to both bundle and TTS paths.
+        // Creds are not checked here — the bundle path is purely local.
+        let should_play = should_play_bundle(self.config.tts.r#override, self.current_device);
         tracing::debug!(
-            "should_speak check: override={:?}, device={:?}, has_creds={}, result={}",
+            "should_play_bundle check: override={:?}, device={:?}, result={}",
             self.config.tts.r#override,
             self.current_device,
-            self.tts_has_creds(),
-            should
+            should_play
         );
-        if !should {
+        if !should_play {
             return;
         }
 
@@ -313,6 +308,17 @@ impl App {
                     return;
                 }
             }
+        }
+
+        // TTS-only gates: session and credentials are only relevant for the
+        // fall-through path; they must not block bundle playback (spec §3).
+        if self.tts_session_disabled {
+            tracing::debug!("TTS session disabled, skipping TTS");
+            return;
+        }
+        if !self.tts_has_creds() {
+            tracing::debug!("No iFlytek creds, skipping TTS");
+            return;
         }
 
         let text = drill.english.clone();
@@ -979,6 +985,7 @@ impl App {
 
     fn quit(&mut self) {
         self.speaker.cancel();
+        self.bundle_player.cancel();
         let _ = self.study.progress().save(&self.data_paths.progress_file);
         self.should_quit = true;
     }

@@ -207,3 +207,69 @@ async fn corrupt_bundle_does_not_call_speaker() {
         "corrupt bundle must not fall through (spec §7), got {speaks:?}"
     );
 }
+
+#[tokio::test]
+async fn bundled_hit_works_when_tts_session_disabled() {
+    let tmp = tempfile::tempdir().unwrap();
+    let paths = DataPaths::for_tests(tmp.path().to_path_buf());
+    paths.ensure_dirs().unwrap();
+    let course = seed_course(&paths);
+    let order0 = course.sentences[0].order;
+    let stage0 = course.sentences[0].drills[0].stage;
+    place_bundle_file(&paths.courses_dir, &course.id, order0, stage0);
+
+    let (mock, spoken, _cancels) = MockSpeaker::new();
+    let mut app = make_app(paths, mock.clone(), course);
+    // Disabling the TTS session must not block the bundle path (spec §3).
+    app.tts_session_disabled = true;
+    app.speak_current_drill();
+    settle().await;
+
+    let speaks = spoken.lock().unwrap().clone();
+    assert!(
+        speaks.is_empty(),
+        "bundle must play even with TTS session disabled, got {speaks:?}"
+    );
+}
+
+#[tokio::test]
+async fn bundled_hit_works_when_no_iflytek_creds() {
+    let tmp = tempfile::tempdir().unwrap();
+    let paths = DataPaths::for_tests(tmp.path().to_path_buf());
+    paths.ensure_dirs().unwrap();
+    let course = seed_course(&paths);
+    let order0 = course.sentences[0].order;
+    let stage0 = course.sentences[0].drills[0].stage;
+    place_bundle_file(&paths.courses_dir, &course.id, order0, stage0);
+
+    // Build the App with empty iFlytek creds; bundle must still play.
+    let (task_tx, _task_rx) = mpsc::channel(16);
+    let mut progress = inkworm::storage::progress::Progress::empty();
+    progress.active_course_id = Some(course.id.clone());
+    let mut config = inkworm::config::Config::default();
+    config.tts.r#override = inkworm::config::TtsOverride::On;
+    // (creds left empty)
+    let bundle_player = Arc::new(BundlePlayer::new(None));
+    let (mock, spoken, _cancels) = MockSpeaker::new();
+    let speaker: Arc<dyn Speaker> = mock;
+    let app = App::new(
+        Some(course),
+        progress,
+        paths,
+        Arc::new(SystemClock),
+        config,
+        inkworm::storage::mistakes::MistakeBook::empty(),
+        None,
+        task_tx,
+        speaker,
+        bundle_player,
+    );
+    app.speak_current_drill();
+    settle().await;
+
+    let speaks = spoken.lock().unwrap().clone();
+    assert!(
+        speaks.is_empty(),
+        "bundle must play with empty iFlytek creds, got {speaks:?}"
+    );
+}
