@@ -1,6 +1,6 @@
 use crate::clock::Clock;
 use crate::judge;
-use crate::storage::course::{Course, Drill};
+use crate::storage::course::{Course, Drill, Sentence};
 use crate::storage::mistakes::DrillRef;
 use crate::storage::progress::Progress;
 use crate::ui::skeleton::skeleton;
@@ -122,6 +122,10 @@ impl StudyState {
         let course = self.course.as_ref()?;
         let sentence = course.sentences.get(self.sentence_idx)?;
         sentence.drills.get(self.drill_idx)
+    }
+
+    pub fn current_sentence(&self) -> Option<&Sentence> {
+        self.course.as_ref()?.sentences.get(self.sentence_idx)
     }
 
     pub fn input(&self) -> &str {
@@ -537,6 +541,20 @@ mod tests {
         let drill = state.current_drill().unwrap();
         assert_eq!(drill.stage, 1);
         assert_eq!(drill.english, "AI think day");
+    }
+
+    #[test]
+    fn current_sentence_returns_active_sentence() {
+        let course = fixture_course();
+        let state = StudyState::new(Some(course.clone()), Progress::empty());
+        let s = state.current_sentence().expect("should have a sentence");
+        assert_eq!(s.order, course.sentences[0].order);
+    }
+
+    #[test]
+    fn current_sentence_none_when_no_course() {
+        let state = StudyState::new(None, Progress::empty());
+        assert!(state.current_sentence().is_none());
     }
 
     #[test]
