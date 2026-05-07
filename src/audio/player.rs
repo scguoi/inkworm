@@ -45,8 +45,7 @@ impl BundlePlayer {
             tokio::task::spawn_blocking(move || {
                 let file = std::fs::File::open(&path_owned)?;
                 let reader = std::io::BufReader::new(file);
-                rodio::Decoder::new(reader)
-                    .map_err(|e| BundleError::Decode(format!("{e}")))
+                rodio::Decoder::new(reader).map_err(|e| BundleError::Decode(format!("{e}")))
             })
             .await
             .map_err(|e| BundleError::Audio(format!("join: {e}")))?;
@@ -57,8 +56,7 @@ impl BundlePlayer {
             // Cache-only mode: decode succeeded, drop the source.
             return Ok(());
         };
-        let sink = rodio::Sink::try_new(handle)
-            .map_err(|e| BundleError::Audio(e.to_string()))?;
+        let sink = rodio::Sink::try_new(handle).map_err(|e| BundleError::Audio(e.to_string()))?;
         sink.append(source);
         if let Ok(mut guard) = self.current_sink.lock() {
             *guard = Some(sink);
