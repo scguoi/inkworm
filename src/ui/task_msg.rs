@@ -8,7 +8,16 @@ pub enum TaskMsg {
     Generate(GenerateProgress),
     Wizard(WizardTaskMsg),
     DeviceDetected(OutputKind),
-    TtsSpeakResult(Result<(), String>),
+    TtsSpeakResult(Result<(), TtsSpeakErr>),
+}
+
+/// Failure carried back from a background `speak` task.
+/// `is_auth` is true when the underlying `TtsError` was `Auth` — those failures
+/// won't self-heal and trigger immediate session disable instead of counting.
+#[derive(Debug, Clone)]
+pub struct TtsSpeakErr {
+    pub message: String,
+    pub is_auth: bool,
 }
 
 /// Progress updates from the Generate background task.

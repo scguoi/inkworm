@@ -291,18 +291,21 @@ impl App {
         let task_tx = self.task_tx.clone();
         tokio::spawn(async move {
             let result = speaker.speak(&text).await;
-            match &result {
+            match result {
                 Ok(()) => {
                     *last_error.lock().await = None;
+                    let _ = task_tx.send(TaskMsg::TtsSpeakResult(Ok(()))).await;
                 }
                 Err(e) => {
-                    let msg = format!("{}", e);
-                    *last_error.lock().await = Some(msg.clone());
-                    let _ = task_tx.send(TaskMsg::TtsSpeakResult(Err(msg))).await;
+                    let is_auth = matches!(e, crate::tts::speaker::TtsError::Auth(_));
+                    let message = format!("{}", e);
+                    *last_error.lock().await = Some(message.clone());
+                    let _ = task_tx
+                        .send(TaskMsg::TtsSpeakResult(Err(
+                            crate::ui::task_msg::TtsSpeakErr { message, is_auth },
+                        )))
+                        .await;
                 }
-            }
-            if result.is_ok() {
-                let _ = task_tx.send(TaskMsg::TtsSpeakResult(Ok(()))).await;
             }
         });
     }
@@ -439,10 +442,17 @@ impl App {
                     self.tts_failure_count += 1;
                     tracing::warn!(
                         failure_count = self.tts_failure_count,
-                        error = %e,
+                        is_auth = e.is_auth,
+                        error = %e.message,
                         "TTS synthesis failed"
                     );
-                    if self.tts_failure_count >= 5 {
+                    // Auth/license failures don't self-heal — disable the
+                    // session immediately so we don't keep hammering the API
+                    // and the user gets a clear signal something is wrong.
+                    if e.is_auth {
+                        self.tts_session_disabled = true;
+                        tracing::warn!("TTS session disabled (auth failure: {})", e.message);
+                    } else if self.tts_failure_count >= 5 {
                         self.tts_session_disabled = true;
                         tracing::warn!("TTS session disabled after 5 consecutive failures");
                     }
@@ -1004,24 +1014,51 @@ impl App {
         inner
     }
 
+    /// Stack the bottom-of-screen banners: a red TTS-disabled banner (when
+    /// the session is paused) above the yellow info banner. Each takes one
+    /// row; older info_banner sits on the very last row to preserve current
+    /// layout, the TTS banner — which we want maximally visible — sits one
+    /// row above it (or on the last row if there's no info_banner).
+    fn render_bottom_banners(&self, frame: &mut Frame, inner: ratatui::layout::Rect) {
+        use ratatui::{
+            layout::Rect,
+            style::{Color, Style},
+            text::Line,
+            widgets::Paragraph,
+        };
+        let mut row_from_bottom = 0u16;
+        let last_row = inner.y + inner.height.saturating_sub(1);
+
+        if let Some(ref banner) = self.info_banner {
+            let para = Paragraph::new(Line::from(banner.as_str()))
+                .style(Style::default().fg(Color::Yellow))
+                .centered();
+            frame.render_widget(para, Rect::new(inner.x, last_row, inner.width, 1));
+            row_from_bottom += 1;
+        }
+
+        if self.tts_session_disabled {
+            let reason = self
+                .last_tts_error
+                .try_lock()
+                .ok()
+                .and_then(|g| g.clone())
+                .unwrap_or_else(|| "session paused".into());
+            let text = format!("🔇 TTS disabled — {}. See /tts for details.", reason);
+            let y = last_row.saturating_sub(row_from_bottom);
+            let para = Paragraph::new(Line::from(text))
+                .style(Style::default().fg(Color::Red))
+                .centered();
+            frame.render_widget(para, Rect::new(inner.x, y, inner.width, 1));
+        }
+    }
+
     pub fn render(&self, frame: &mut Frame) {
         match &self.screen {
             Screen::Study => {
                 let inner = self.render_chrome(frame);
                 crate::ui::study::render_study(frame, inner, &self.study, self.cursor_visible);
-                if let Some(ref banner) = self.info_banner {
-                    use ratatui::{
-                        layout::Rect,
-                        style::{Color, Style},
-                        text::Line,
-                        widgets::Paragraph,
-                    };
-                    let y = inner.y + inner.height.saturating_sub(1);
-                    let para = Paragraph::new(Line::from(banner.as_str()))
-                        .style(Style::default().fg(Color::Yellow))
-                        .centered();
-                    frame.render_widget(para, Rect::new(inner.x, y, inner.width, 1));
-                }
+                self.render_bottom_banners(frame, inner);
             }
             Screen::Palette => {
                 let inner = self.render_chrome(frame);
