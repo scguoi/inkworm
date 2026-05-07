@@ -288,6 +288,10 @@ impl App {
             return;
         }
         let text = drill.english.clone();
+        self.speak_via_tts(text);
+    }
+
+    fn speak_via_tts(&self, text: String) {
         tracing::info!("Spawning TTS task for text: {}", text);
         let speaker = Arc::clone(&self.speaker);
         let last_error = Arc::clone(&self.last_tts_error);
