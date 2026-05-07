@@ -51,6 +51,7 @@ pub struct App {
     pub config_wizard: Option<crate::ui::config_wizard::WizardState>,
     pub course_list: Option<crate::ui::course_list::CourseListState>,
     pub speaker: Arc<dyn Speaker>,
+    pub bundle_player: Arc<crate::audio::player::BundlePlayer>,
     pub current_device: OutputKind,
     device_probe_counter: u32,
     pub last_tts_error: Arc<tokio::sync::Mutex<Option<String>>>,
@@ -73,6 +74,7 @@ impl App {
         boot_warning: Option<String>,
         task_tx: mpsc::Sender<TaskMsg>,
         speaker: Arc<dyn Speaker>,
+        bundle_player: Arc<crate::audio::player::BundlePlayer>,
     ) -> Self {
         let mut app = Self {
             screen: Screen::Study,
@@ -91,6 +93,7 @@ impl App {
             config_wizard: None,
             course_list: None,
             speaker,
+            bundle_player,
             current_device: OutputKind::Unknown,
             device_probe_counter: 0,
             last_tts_error: Arc::new(tokio::sync::Mutex::new(None)),

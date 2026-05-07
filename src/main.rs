@@ -152,8 +152,9 @@ fn main() -> anyhow::Result<()> {
         &config.tts.iflytek,
         paths.tts_cache_dir.clone(),
         config.tts.r#override,
-        audio_handle,
+        audio_handle.clone(),
     ));
+    let bundle_player = Arc::new(inkworm::audio::player::BundlePlayer::new(audio_handle));
 
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -177,6 +178,7 @@ fn main() -> anyhow::Result<()> {
             combined_boot_warning,
             task_tx,
             speaker,
+            bundle_player,
         );
 
         // Detect device synchronously on startup so first TTS works

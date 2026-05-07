@@ -51,6 +51,7 @@ fn make_app(paths: DataPaths, progress: Progress) -> App {
         .as_deref()
         .and_then(|id| load_course(&paths.courses_dir, id).ok());
     let speaker: Arc<dyn Speaker> = Arc::new(NullSpeaker);
+    let bundle_player = std::sync::Arc::new(inkworm::audio::player::BundlePlayer::new(None));
     App::new(
         course,
         progress,
@@ -61,6 +62,7 @@ fn make_app(paths: DataPaths, progress: Progress) -> App {
         None,
         task_tx,
         speaker,
+        bundle_player,
     )
 }
 

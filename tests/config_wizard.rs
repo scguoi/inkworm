@@ -26,6 +26,7 @@ fn make_app(
 ) -> (App, tokio::sync::mpsc::Receiver<TaskMsg>) {
     let (tx, rx) = tokio::sync::mpsc::channel(32);
     let speaker: Arc<dyn Speaker> = Arc::new(NullSpeaker);
+    let bundle_player = std::sync::Arc::new(inkworm::audio::player::BundlePlayer::new(None));
     let app = App::new(
         None,
         progress,
@@ -36,6 +37,7 @@ fn make_app(
         None,
         tx,
         speaker,
+        bundle_player,
     );
     (app, rx)
 }

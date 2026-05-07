@@ -32,6 +32,7 @@ fn ctrl(c: char) -> Event {
 fn make_app(paths: DataPaths) -> App {
     let (task_tx, _task_rx) = mpsc::channel(16);
     let speaker: Arc<dyn Speaker> = Arc::new(NullSpeaker);
+    let bundle_player = std::sync::Arc::new(inkworm::audio::player::BundlePlayer::new(None));
     App::new(
         None,
         Progress::empty(),
@@ -42,6 +43,7 @@ fn make_app(paths: DataPaths) -> App {
         None,
         task_tx,
         speaker,
+        bundle_player,
     )
 }
 

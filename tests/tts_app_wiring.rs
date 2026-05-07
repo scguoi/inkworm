@@ -72,6 +72,7 @@ fn make_app(paths: DataPaths, speaker: Arc<dyn Speaker>, course: Option<Course>)
     config.tts.iflytek.app_id = "test-app".into();
     config.tts.iflytek.api_key = "test-key".into();
     config.tts.iflytek.api_secret = "test-secret".into();
+    let bundle_player = std::sync::Arc::new(inkworm::audio::player::BundlePlayer::new(None));
     App::new(
         course,
         progress,
@@ -82,6 +83,7 @@ fn make_app(paths: DataPaths, speaker: Arc<dyn Speaker>, course: Option<Course>)
         None,
         task_tx,
         speaker,
+        bundle_player,
     )
 }
 
