@@ -104,6 +104,7 @@ impl App {
             shell_header: crate::ui::shell_chrome::ShellHeader::detect(),
         };
         app.startup_apply_mistakes_session();
+        app.spawn_bundle_prewarm();
         if boot_warning.is_some() && app.info_banner.is_none() {
             app.info_banner = boot_warning;
         }
@@ -121,6 +122,16 @@ impl App {
 
     fn load_course_owned(&self, id: &str) -> Option<crate::storage::course::Course> {
         crate::storage::course::load_course(&self.data_paths.courses_dir, id).ok()
+    }
+
+    /// Kick off background materialization of the active course's bundle
+    /// mp3s. On macOS this forces iCloud `dataless` placeholders to
+    /// download up-front so playback isn't gated on per-drill iCloud
+    /// fetches. Cheap no-op when there's no active course.
+    fn spawn_bundle_prewarm(&self) {
+        if let Some(course) = self.study.current_course() {
+            crate::audio::bundle::spawn_prewarm_course(self.data_paths.courses_dir.clone(), course);
+        }
     }
 
     /// Switches the study screen into Mistakes mode and points at the
@@ -168,6 +179,7 @@ impl App {
         new_state.set_mode(StudyMode::Mistakes);
         new_state.set_current_drill(sentence_idx, drill_idx);
         self.study = new_state;
+        self.spawn_bundle_prewarm();
         self.speak_current_drill();
     }
 
@@ -381,6 +393,7 @@ impl App {
         self.study = crate::ui::study::StudyState::new(Some(course), progress);
         self.course_list = None;
         self.screen = Screen::Study;
+        self.spawn_bundle_prewarm();
         self.speak_current_drill();
     }
 

@@ -148,11 +148,10 @@ impl ProgressSummary {
             }
         }
 
-        let pct = if total_drills == 0 {
-            0
-        } else {
-            ((mastered * 100) / total_drills).min(100) as u8
-        };
+        let pct = (mastered * 100)
+            .checked_div(total_drills)
+            .unwrap_or(0)
+            .min(100) as u8;
 
         let (s_cur_idx, d_cur_idx) = match first_incomplete {
             Some((si, di)) => (si, di),
