@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::storage::course::StorageError;
+use crate::storage::course::{Course, StorageError};
 
 /// Resolve the on-disk path for a single drill's bundled mp3.
 ///
@@ -37,6 +37,60 @@ pub fn bundle_exists(courses_dir: &Path, course_id: &str, order: u32, stage: u32
     }
 }
 
+/// Enumerate every drill's bundled mp3 path for `course`. Returns
+/// empty Vec when the course id lacks the `yyyy-mm-dd-` prefix.
+pub fn bundle_paths_for_course(courses_dir: &Path, course: &Course) -> Vec<PathBuf> {
+    course
+        .sentences
+        .iter()
+        .flat_map(|s| {
+            let order = s.order;
+            s.drills
+                .iter()
+                .map(move |d| (order, d.stage))
+                .filter_map(|(order, stage)| {
+                    bundle_path(courses_dir, &course.id, order, stage).ok()
+                })
+        })
+        .collect()
+}
+
+/// Open `path` and drain its bytes into a sink. On macOS this forces
+/// iCloud Drive to materialize a `dataless` placeholder. Returns the
+/// number of bytes read.
+pub(crate) fn materialize(path: &Path) -> std::io::Result<u64> {
+    let mut file = std::fs::File::open(path)?;
+    let mut sink = std::io::sink();
+    std::io::copy(&mut file, &mut sink)
+}
+
+/// Fire-and-forget: spawn a tokio task that materializes every drill
+/// mp3 for `course` from iCloud, sequentially, in a blocking pool.
+/// Per-file failures are logged at `debug` and never propagate.
+///
+/// Silently no-ops if called outside a tokio runtime (e.g. from sync
+/// integration tests that construct `App` directly).
+pub fn spawn_prewarm_course(courses_dir: PathBuf, course: &Course) {
+    let paths = bundle_paths_for_course(&courses_dir, course);
+    if paths.is_empty() {
+        return;
+    }
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    handle.spawn(async move {
+        for path in paths {
+            let p = path.clone();
+            let join = tokio::task::spawn_blocking(move || materialize(&p)).await;
+            match join {
+                Ok(Ok(n)) => tracing::debug!("bundle prewarm {}: {} bytes", path.display(), n),
+                Ok(Err(e)) => tracing::debug!("bundle prewarm skip {}: {}", path.display(), e),
+                Err(e) => tracing::warn!("bundle prewarm join error for {}: {}", path.display(), e),
+            }
+        }
+    });
+}
+
 fn has_yyyy_mm_dd_prefix(s: &str) -> bool {
     let b = s.as_bytes();
     b.len() >= 11
@@ -51,6 +105,41 @@ fn has_yyyy_mm_dd_prefix(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::course::{Course, Drill, Focus, Sentence, Source, SourceKind};
+
+    fn course_with_drills(id: &str, drills_per_sentence: &[&[u32]]) -> Course {
+        use chrono::TimeZone;
+        let sentences = drills_per_sentence
+            .iter()
+            .enumerate()
+            .map(|(i, stages)| Sentence {
+                order: (i + 1) as u32,
+                drills: stages
+                    .iter()
+                    .map(|&stage| Drill {
+                        stage,
+                        focus: Focus::Keywords,
+                        chinese: "测".into(),
+                        english: "t".into(),
+                        soundmark: "/t/".into(),
+                    })
+                    .collect(),
+            })
+            .collect();
+        Course {
+            schema_version: 2,
+            id: id.into(),
+            title: "T".into(),
+            description: None,
+            source: Source {
+                kind: SourceKind::Manual,
+                url: String::new(),
+                created_at: chrono::Utc.with_ymd_and_hms(2026, 5, 6, 0, 0, 0).unwrap(),
+                model: "t".into(),
+            },
+            sentences,
+        }
+    }
 
     #[test]
     fn bundle_path_yyyy_mm_split() {
@@ -100,5 +189,48 @@ mod tests {
     fn bundle_exists_false_for_invalid_id() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(!bundle_exists(tmp.path(), "no-prefix", 1, 1));
+    }
+
+    #[test]
+    fn bundle_paths_for_course_enumerates_every_drill() {
+        let course = course_with_drills("2026-05-06-foo", &[&[1, 2, 3, 4], &[1, 2]]);
+        let paths = bundle_paths_for_course(Path::new("/c"), &course);
+        assert_eq!(
+            paths,
+            vec![
+                PathBuf::from("/c/2026-05/06-foo/s01-d1.mp3"),
+                PathBuf::from("/c/2026-05/06-foo/s01-d2.mp3"),
+                PathBuf::from("/c/2026-05/06-foo/s01-d3.mp3"),
+                PathBuf::from("/c/2026-05/06-foo/s01-d4.mp3"),
+                PathBuf::from("/c/2026-05/06-foo/s02-d1.mp3"),
+                PathBuf::from("/c/2026-05/06-foo/s02-d2.mp3"),
+            ]
+        );
+    }
+
+    #[test]
+    fn bundle_paths_for_course_invalid_id_returns_empty() {
+        let course = course_with_drills("no-date-prefix", &[&[1]]);
+        let paths = bundle_paths_for_course(Path::new("/c"), &course);
+        assert!(paths.is_empty(), "got {paths:?}");
+    }
+
+    #[test]
+    fn materialize_reads_real_file_returns_byte_count() {
+        let bytes = materialize(Path::new("fixtures/audio/silence.mp3")).unwrap();
+        assert!(bytes > 0, "expected nonzero, got {bytes}");
+    }
+
+    #[test]
+    fn spawn_prewarm_course_outside_runtime_does_not_panic() {
+        let course = course_with_drills("2026-05-06-foo", &[&[1]]);
+        // Called from a plain #[test] = no tokio runtime in scope.
+        spawn_prewarm_course(PathBuf::from("/tmp/no-such-courses"), &course);
+    }
+
+    #[test]
+    fn materialize_missing_file_returns_io_error() {
+        let err = materialize(Path::new("/definitely/does/not/exist.mp3")).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
     }
 }
