@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
@@ -161,8 +161,10 @@ impl App {
             return;
         }
 
-        let generation =
-            self.prewarm_generation.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
+        let generation = self
+            .prewarm_generation
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
+            + 1;
         self.prewarm_state = Some(PrewarmState {
             generation,
             done: 0,
@@ -571,8 +573,7 @@ impl App {
                     if state.generation == generation {
                         state.done = done;
                         state.total = total;
-                        self.info_banner =
-                            Some(format!("Prewarming audio ({}/{})…", done, total));
+                        self.info_banner = Some(format!("Prewarming audio ({}/{})…", done, total));
                     }
                 }
             }
@@ -1517,10 +1518,7 @@ impl App {
         struct NoopSpeaker;
         #[async_trait::async_trait]
         impl Speaker for NoopSpeaker {
-            async fn speak(
-                &self,
-                _text: &str,
-            ) -> Result<(), crate::tts::speaker::TtsError> {
+            async fn speak(&self, _text: &str) -> Result<(), crate::tts::speaker::TtsError> {
                 Ok(())
             }
             fn cancel(&self) {}
@@ -1575,10 +1573,7 @@ mod prewarm_msg_tests {
             done: 2,
             total: 5,
         });
-        assert_eq!(
-            app.info_banner.as_deref(),
-            Some("Prewarming audio (2/5)…")
-        );
+        assert_eq!(app.info_banner.as_deref(), Some("Prewarming audio (2/5)…"));
         assert_eq!(app.prewarm_state.unwrap().done, 2);
     }
 

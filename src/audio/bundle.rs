@@ -151,19 +151,11 @@ pub fn spawn_prewarm_course(
                         match join {
                             Ok(Ok(n)) => {
                                 ok.fetch_add(1, Ordering::Relaxed);
-                                tracing::debug!(
-                                    "bundle prewarm {}: {} bytes",
-                                    path.display(),
-                                    n
-                                );
+                                tracing::debug!("bundle prewarm {}: {} bytes", path.display(), n);
                             }
                             Ok(Err(e)) => {
                                 failed.fetch_add(1, Ordering::Relaxed);
-                                tracing::warn!(
-                                    "bundle prewarm failed {}: {}",
-                                    path.display(),
-                                    e
-                                );
+                                tracing::warn!("bundle prewarm failed {}: {}", path.display(), e);
                             }
                             Err(e) => {
                                 failed.fetch_add(1, Ordering::Relaxed);
@@ -174,8 +166,7 @@ pub fn spawn_prewarm_course(
                                 );
                             }
                         }
-                        let done =
-                            ok.load(Ordering::Relaxed) + failed.load(Ordering::Relaxed);
+                        let done = ok.load(Ordering::Relaxed) + failed.load(Ordering::Relaxed);
                         let _ = progress_tx
                             .send(TaskMsg::PrewarmProgress {
                                 generation,
@@ -334,13 +325,7 @@ mod tests {
         let gen = Arc::new(AtomicU64::new(1));
         let (tx, _rx) = mpsc::channel::<TaskMsg>(4);
         // Called from a plain #[test] = no tokio runtime in scope.
-        spawn_prewarm_course(
-            PathBuf::from("/tmp/no-such-courses"),
-            &course,
-            1,
-            gen,
-            tx,
-        );
+        spawn_prewarm_course(PathBuf::from("/tmp/no-such-courses"), &course, 1, gen, tx);
     }
 
     #[test]
@@ -392,12 +377,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let course = course_with_drills(
             "2026-05-06-foo",
-            &[
-                &[1, 2, 3, 4],
-                &[1, 2, 3, 4],
-                &[1, 2, 3, 4],
-                &[1, 2, 3, 4],
-            ],
+            &[&[1, 2, 3, 4], &[1, 2, 3, 4], &[1, 2, 3, 4], &[1, 2, 3, 4]],
         );
 
         let gen = Arc::new(AtomicU64::new(2)); // current is 2
@@ -413,7 +393,11 @@ mod tests {
         loop {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             match tokio::time::timeout(remaining, rx.recv()).await {
-                Ok(Some(TaskMsg::PrewarmDone { generation: 1, ok: 0, failed: 0 })) => {
+                Ok(Some(TaskMsg::PrewarmDone {
+                    generation: 1,
+                    ok: 0,
+                    failed: 0,
+                })) => {
                     got_done = true;
                     break;
                 }
@@ -476,9 +460,16 @@ mod tests {
         // assert a specific value per-message — only the count and the
         // final authoritative tally in PrewarmDone.
         assert_eq!(progress_count, 3, "expected 3 progress messages");
-        assert!(max_progress_done <= 3, "progress.done must never exceed total");
+        assert!(
+            max_progress_done <= 3,
+            "progress.done must never exceed total"
+        );
         match done_msg.expect("expected a PrewarmDone") {
-            TaskMsg::PrewarmDone { generation: 7, ok: 0, failed: 3 } => {}
+            TaskMsg::PrewarmDone {
+                generation: 7,
+                ok: 0,
+                failed: 3,
+            } => {}
             other => panic!("unexpected done: {other:?}"),
         }
     }
