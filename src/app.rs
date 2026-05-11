@@ -162,7 +162,7 @@ impl App {
         }
 
         let generation =
-            self.prewarm_generation.fetch_add(1, std::sync::atomic::Ordering::Release) + 1;
+            self.prewarm_generation.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1;
         self.prewarm_state = Some(PrewarmState {
             generation,
             done: 0,
@@ -179,7 +179,7 @@ impl App {
             courses_dir,
             &course_owned,
             generation,
-            self.prewarm_generation.clone(),
+            Arc::clone(&self.prewarm_generation),
             self.task_tx.clone(),
         );
     }
