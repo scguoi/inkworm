@@ -154,7 +154,7 @@ impl App {
         // run is a true no-op (no banner flicker, no spawned task).
         let total = crate::audio::bundle::bundle_paths_for_course(&courses_dir, &course_owned)
             .iter()
-            .filter(|p| !crate::audio::bundle::is_locally_resident(p))
+            .filter(|p| crate::audio::bundle::is_icloud_placeholder(p))
             .count() as u32;
         if total == 0 {
             tracing::debug!("bundle prewarm: nothing to do");

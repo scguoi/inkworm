@@ -70,6 +70,19 @@ pub fn is_locally_resident(path: &Path) -> bool {
     }
 }
 
+/// Returns `true` iff `path` is a regular file that exists on disk but
+/// has zero allocated blocks — the signature of an iCloud `dataless`
+/// placeholder. Distinct from `!is_locally_resident`, which also flags
+/// "file does not exist at all" — those are NOT placeholders and must
+/// not be enqueued for prewarm (no amount of materialize will produce
+/// a file that was never published).
+///
+/// On non-Unix targets, returns `false` for all paths (no placeholder
+/// semantics outside macOS).
+pub fn is_icloud_placeholder(path: &Path) -> bool {
+    path.is_file() && !is_locally_resident(path)
+}
+
 /// Enumerate every drill's bundled mp3 path for `course`. Returns
 /// empty Vec when the course id lacks the `yyyy-mm-dd-` prefix.
 pub fn bundle_paths_for_course(courses_dir: &Path, course: &Course) -> Vec<PathBuf> {
@@ -123,7 +136,7 @@ pub fn spawn_prewarm_course(
     let all_paths = bundle_paths_for_course(&courses_dir, course);
     let paths: Vec<PathBuf> = all_paths
         .into_iter()
-        .filter(|p| !is_locally_resident(p))
+        .filter(|p| is_icloud_placeholder(p))
         .collect();
     let total = paths.len() as u32;
 
@@ -404,17 +417,26 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn spawn_prewarm_course_reports_progress_and_done() {
-        // We deliberately do NOT create the mp3 files. Missing files mean
-        // `is_locally_resident` returns false (metadata error) so they pass
-        // the "skip resident" filter and reach `materialize`, which then
-        // fails with NotFound. This exercises the full pipeline — take_while
-        // gate → for_each_concurrent → spawn_blocking → atomic increment →
-        // Progress send → final Done — with each file counted as `failed`.
+        // Create three zero-byte mp3 files. Zero bytes = zero allocated
+        // blocks on APFS/ext4 = the on-disk signature of an iCloud
+        // `dataless` placeholder. `is_icloud_placeholder` returns true
+        // (file exists AND not locally resident), so they pass the
+        // prewarm filter. `materialize` opens, reads zero bytes, returns
+        // `Ok(0)` — counted as `ok`.
         //
-        // Creating real files (even 1 byte) would make them locally resident
-        // on APFS/ext4 (allocated blocks > 0), get filtered out before the
-        // stream, and result in total=0 — bypassing the progress code path.
+        // Why not skip file creation: under the placeholder filter,
+        // missing files are NOT considered placeholders (a missing path
+        // means "this course has no bundle audio", not "needs download"),
+        // so total would be 0 and the progress pipeline would not run.
+        //
+        // Why not 1-byte files: non-empty files allocate a block, look
+        // locally resident, and get filtered out as "already done".
         let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("2026-05").join("06-foo");
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in ["s01-d1.mp3", "s01-d2.mp3", "s02-d1.mp3"] {
+            std::fs::write(dir.join(f), b"").unwrap();
+        }
         let course = course_with_drills("2026-05-06-foo", &[&[1, 2], &[1]]);
         let gen = Arc::new(AtomicU64::new(7));
         let (tx, mut rx) = mpsc::channel::<TaskMsg>(64);
@@ -460,10 +482,30 @@ mod tests {
         match done_msg.expect("expected a PrewarmDone") {
             TaskMsg::PrewarmDone {
                 generation: 7,
-                ok: 0,
-                failed: 3,
+                ok: 3,
+                failed: 0,
             } => {}
             other => panic!("unexpected done: {other:?}"),
         }
+    }
+
+    #[test]
+    fn is_icloud_placeholder_distinguishes_missing_and_dataless() {
+        let tmp = tempfile::tempdir().unwrap();
+        let placeholder = tmp.path().join("placeholder.mp3");
+        std::fs::write(&placeholder, b"").unwrap();
+        let resident = tmp.path().join("resident.mp3");
+        std::fs::write(&resident, b"x").unwrap();
+
+        // Zero-byte regular file is a placeholder.
+        assert!(is_icloud_placeholder(&placeholder));
+        // Non-empty file is NOT a placeholder (locally resident).
+        assert!(!is_icloud_placeholder(&resident));
+        // Directory is not a regular file.
+        assert!(!is_icloud_placeholder(tmp.path()));
+        // Missing path is NOT a placeholder — it's "course has no bundle".
+        assert!(!is_icloud_placeholder(std::path::Path::new(
+            "/definitely/does/not/exist.mp3"
+        )));
     }
 }
