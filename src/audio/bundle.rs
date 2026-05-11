@@ -5,8 +5,14 @@
 //! where `id_tail` is everything after `yyyy-mm-dd-` (i.e. `id[8..]`).
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::Arc;
+
+use futures::stream::{self, StreamExt};
+use tokio::sync::mpsc;
 
 use crate::storage::course::{Course, StorageError};
+use crate::ui::task_msg::TaskMsg;
 
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
@@ -91,30 +97,105 @@ pub(crate) fn materialize(path: &Path) -> std::io::Result<u64> {
     std::io::copy(&mut file, &mut sink)
 }
 
-/// Fire-and-forget: spawn a tokio task that materializes every drill
-/// mp3 for `course` from iCloud, sequentially, in a blocking pool.
-/// Per-file failures are logged at `debug` and never propagate.
+/// Concurrently materialize every drill mp3 for `course` from iCloud,
+/// reporting progress through `progress_tx`. The work runs on a tokio
+/// task spawned via `Handle::try_current()`; calling outside a runtime
+/// is a silent no-op (the function never panics).
 ///
-/// Silently no-ops if called outside a tokio runtime (e.g. from sync
-/// integration tests that construct `App` directly).
-pub fn spawn_prewarm_course(courses_dir: PathBuf, course: &Course) {
-    let paths = bundle_paths_for_course(&courses_dir, course);
-    if paths.is_empty() {
-        return;
-    }
+/// **Cancellation:** before each new file enters the work pool, the
+/// task checks `current_generation.load(Acquire)`. If it no longer
+/// equals `generation`, the stream short-circuits and no further files
+/// are touched. In-flight blocking jobs (≤ 8) run to completion.
+///
+/// **Progress:** one `PrewarmProgress` per file (success or failure);
+/// one final `PrewarmDone` carrying `ok` and `failed` counters.
+///
+/// **Skipping resident files:** already-resident files are filtered out
+/// up-front, so `total` in progress messages reflects placeholder count,
+/// not the full drill count.
+pub fn spawn_prewarm_course(
+    courses_dir: PathBuf,
+    course: &Course,
+    generation: u64,
+    current_generation: Arc<AtomicU64>,
+    progress_tx: mpsc::Sender<TaskMsg>,
+) {
+    let all_paths = bundle_paths_for_course(&courses_dir, course);
+    let paths: Vec<PathBuf> = all_paths
+        .into_iter()
+        .filter(|p| !is_locally_resident(p))
+        .collect();
+    let total = paths.len() as u32;
+
     let Ok(handle) = tokio::runtime::Handle::try_current() else {
         return;
     };
+
     handle.spawn(async move {
-        for path in paths {
-            let p = path.clone();
-            let join = tokio::task::spawn_blocking(move || materialize(&p)).await;
-            match join {
-                Ok(Ok(n)) => tracing::debug!("bundle prewarm {}: {} bytes", path.display(), n),
-                Ok(Err(e)) => tracing::debug!("bundle prewarm skip {}: {}", path.display(), e),
-                Err(e) => tracing::warn!("bundle prewarm join error for {}: {}", path.display(), e),
-            }
+        let ok = Arc::new(AtomicU32::new(0));
+        let failed = Arc::new(AtomicU32::new(0));
+
+        if total > 0 {
+            let gate_gen = current_generation.clone();
+            stream::iter(paths)
+                .take_while(move |_| {
+                    let alive = gate_gen.load(Ordering::Acquire) == generation;
+                    async move { alive }
+                })
+                .for_each_concurrent(Some(8), |path| {
+                    let ok = ok.clone();
+                    let failed = failed.clone();
+                    let progress_tx = progress_tx.clone();
+                    async move {
+                        let p = path.clone();
+                        let join = tokio::task::spawn_blocking(move || materialize(&p)).await;
+                        match join {
+                            Ok(Ok(n)) => {
+                                ok.fetch_add(1, Ordering::Relaxed);
+                                tracing::debug!(
+                                    "bundle prewarm {}: {} bytes",
+                                    path.display(),
+                                    n
+                                );
+                            }
+                            Ok(Err(e)) => {
+                                failed.fetch_add(1, Ordering::Relaxed);
+                                tracing::warn!(
+                                    "bundle prewarm failed {}: {}",
+                                    path.display(),
+                                    e
+                                );
+                            }
+                            Err(e) => {
+                                failed.fetch_add(1, Ordering::Relaxed);
+                                tracing::warn!(
+                                    "bundle prewarm join error for {}: {}",
+                                    path.display(),
+                                    e
+                                );
+                            }
+                        }
+                        let done =
+                            ok.load(Ordering::Relaxed) + failed.load(Ordering::Relaxed);
+                        let _ = progress_tx
+                            .send(TaskMsg::PrewarmProgress {
+                                generation,
+                                done,
+                                total,
+                            })
+                            .await;
+                    }
+                })
+                .await;
         }
+
+        let _ = progress_tx
+            .send(TaskMsg::PrewarmDone {
+                generation,
+                ok: ok.load(Ordering::Relaxed),
+                failed: failed.load(Ordering::Relaxed),
+            })
+            .await;
     });
 }
 
@@ -251,8 +332,16 @@ mod tests {
     #[test]
     fn spawn_prewarm_course_outside_runtime_does_not_panic() {
         let course = course_with_drills("2026-05-06-foo", &[&[1]]);
+        let gen = Arc::new(AtomicU64::new(1));
+        let (tx, _rx) = mpsc::channel::<TaskMsg>(4);
         // Called from a plain #[test] = no tokio runtime in scope.
-        spawn_prewarm_course(PathBuf::from("/tmp/no-such-courses"), &course);
+        spawn_prewarm_course(
+            PathBuf::from("/tmp/no-such-courses"),
+            &course,
+            1,
+            gen,
+            tx,
+        );
     }
 
     #[test]
@@ -292,5 +381,93 @@ mod tests {
         // Zero-byte file simulates an iCloud dataless placeholder
         std::fs::write(dir.join("s01-d1.mp3"), b"").unwrap();
         assert!(!bundle_exists(tmp.path(), "2026-05-06-foo", 1, 1));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn spawn_prewarm_course_stops_when_generation_advances() {
+        // Build a course referencing 16 mp3 paths under a tempdir;
+        // none of them exist on disk, so each materialize errors quickly
+        // and the loop should proceed fast. Bumping the generation to a
+        // different value before spawning means the take_while gate trips
+        // on the very first poll and no progress messages are sent.
+        let tmp = tempfile::tempdir().unwrap();
+        let course = course_with_drills(
+            "2026-05-06-foo",
+            &[
+                &[1, 2, 3, 4],
+                &[1, 2, 3, 4],
+                &[1, 2, 3, 4],
+                &[1, 2, 3, 4],
+            ],
+        );
+
+        let gen = Arc::new(AtomicU64::new(2)); // current is 2
+        let (tx, mut rx) = mpsc::channel::<TaskMsg>(64);
+
+        // Spawn with stale generation 1 — must short-circuit.
+        spawn_prewarm_course(tmp.path().to_path_buf(), &course, 1, gen.clone(), tx);
+
+        // Drain channel with a tight timeout. We expect exactly one
+        // PrewarmDone with ok=0 failed=0 (nothing was attempted).
+        let mut got_done = false;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(500);
+        loop {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match tokio::time::timeout(remaining, rx.recv()).await {
+                Ok(Some(TaskMsg::PrewarmDone { generation: 1, ok: 0, failed: 0 })) => {
+                    got_done = true;
+                    break;
+                }
+                Ok(Some(other)) => panic!("unexpected message: {other:?}"),
+                Ok(None) => break,
+                Err(_) => break, // timeout
+            }
+        }
+        assert!(got_done, "expected PrewarmDone with ok=0 failed=0");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn spawn_prewarm_course_reports_progress_and_done() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Create 3 real mp3 paths so materialize succeeds for each.
+        let dir = tmp.path().join("2026-05").join("06-foo");
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in ["s01-d1.mp3", "s01-d2.mp3", "s02-d1.mp3"] {
+            std::fs::write(dir.join(f), b"x").unwrap();
+        }
+        let course = course_with_drills("2026-05-06-foo", &[&[1, 2], &[1]]);
+        let gen = Arc::new(AtomicU64::new(7));
+        let (tx, mut rx) = mpsc::channel::<TaskMsg>(64);
+
+        spawn_prewarm_course(tmp.path().to_path_buf(), &course, 7, gen.clone(), tx);
+
+        let mut progress_count = 0u32;
+        let mut last_progress_done = 0u32;
+        let mut done_msg: Option<TaskMsg> = None;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match tokio::time::timeout(remaining, rx.recv()).await {
+                Ok(Some(msg @ TaskMsg::PrewarmProgress { generation: 7, .. })) => {
+                    progress_count += 1;
+                    if let TaskMsg::PrewarmProgress { done, .. } = &msg {
+                        last_progress_done = *done;
+                    }
+                }
+                Ok(Some(msg @ TaskMsg::PrewarmDone { generation: 7, .. })) => {
+                    done_msg = Some(msg);
+                    break;
+                }
+                Ok(Some(other)) => panic!("unexpected msg: {other:?}"),
+                Ok(None) | Err(_) => break,
+            }
+        }
+
+        assert_eq!(progress_count, 3, "expected 3 progress messages");
+        assert_eq!(last_progress_done, 3, "final progress.done should equal total");
+        match done_msg.expect("expected a PrewarmDone") {
+            TaskMsg::PrewarmDone { generation: 7, ok: 3, failed: 0 } => {}
+            other => panic!("unexpected done: {other:?}"),
+        }
     }
 }
