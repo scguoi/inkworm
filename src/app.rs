@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
@@ -34,6 +35,16 @@ pub enum Screen {
     Doctor,
 }
 
+/// Snapshot of an in-progress bundle prewarm run, used to drive the
+/// info banner. Only ever touched on the main loop thread; the
+/// generation match guards against messages from cancelled runs.
+#[derive(Debug, Clone, Copy)]
+struct PrewarmState {
+    generation: u64,
+    done: u32,
+    total: u32,
+}
+
 pub struct App {
     pub screen: Screen,
     pub should_quit: bool,
@@ -60,6 +71,8 @@ pub struct App {
     pub doctor_results: Option<Vec<crate::ui::doctor::CheckResult>>,
     pub info_banner: Option<String>,
     pub shell_header: crate::ui::shell_chrome::ShellHeader,
+    prewarm_generation: Arc<AtomicU64>,
+    prewarm_state: Option<PrewarmState>,
 }
 
 impl App {
@@ -102,6 +115,8 @@ impl App {
             doctor_results: None,
             info_banner: None,
             shell_header: crate::ui::shell_chrome::ShellHeader::detect(),
+            prewarm_generation: Arc::new(AtomicU64::new(0)),
+            prewarm_state: None,
         };
         app.startup_apply_mistakes_session();
         app.spawn_bundle_prewarm();
@@ -124,14 +139,49 @@ impl App {
         crate::storage::course::load_course(&self.data_paths.courses_dir, id).ok()
     }
 
-    /// Kick off background materialization of the active course's bundle
-    /// mp3s. On macOS this forces iCloud `dataless` placeholders to
-    /// download up-front so playback isn't gated on per-drill iCloud
-    /// fetches. Cheap no-op when there's no active course.
-    fn spawn_bundle_prewarm(&self) {
-        if let Some(course) = self.study.current_course() {
-            crate::audio::bundle::spawn_prewarm_course(self.data_paths.courses_dir.clone(), course);
+    /// Kick off background materialization of the active course's
+    /// bundle mp3s, with concurrency, cancellation, and UI progress.
+    /// Cheap no-op when no active course or every file is already
+    /// locally resident.
+    fn spawn_bundle_prewarm(&mut self) {
+        let Some(course) = self.study.current_course() else {
+            return;
+        };
+        let courses_dir = self.data_paths.courses_dir.clone();
+        let course_owned = course.clone();
+
+        // Count placeholders before bumping generation, so a 0-placeholder
+        // run is a true no-op (no banner flicker, no spawned task).
+        let total = crate::audio::bundle::bundle_paths_for_course(&courses_dir, &course_owned)
+            .iter()
+            .filter(|p| !crate::audio::bundle::is_locally_resident(p))
+            .count() as u32;
+        if total == 0 {
+            tracing::debug!("bundle prewarm: nothing to do");
+            return;
         }
+
+        let generation =
+            self.prewarm_generation.fetch_add(1, std::sync::atomic::Ordering::Release) + 1;
+        self.prewarm_state = Some(PrewarmState {
+            generation,
+            done: 0,
+            total,
+        });
+        self.info_banner = Some(format!("Prewarming audio (0/{})…", total));
+        tracing::info!(
+            "bundle prewarm start: generation={} total={}",
+            generation,
+            total
+        );
+
+        crate::audio::bundle::spawn_prewarm_course(
+            courses_dir,
+            &course_owned,
+            generation,
+            self.prewarm_generation.clone(),
+            self.task_tx.clone(),
+        );
     }
 
     /// Switches the study screen into Mistakes mode and points at the
@@ -310,7 +360,7 @@ impl App {
             if let Ok(path) =
                 crate::audio::bundle::bundle_path(&self.data_paths.courses_dir, &cid, order, stage)
             {
-                if path.exists() {
+                if path.is_file() && crate::audio::bundle::is_locally_resident(&path) {
                     let player = Arc::clone(&self.bundle_player);
                     tokio::spawn(async move {
                         if let Err(e) = player.play(&path).await {
