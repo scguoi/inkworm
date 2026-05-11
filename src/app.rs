@@ -562,6 +562,54 @@ impl App {
                     }
                 }
             },
+            TaskMsg::PrewarmProgress {
+                generation,
+                done,
+                total,
+            } => {
+                if let Some(state) = self.prewarm_state.as_mut() {
+                    if state.generation == generation {
+                        state.done = done;
+                        state.total = total;
+                        self.info_banner =
+                            Some(format!("Prewarming audio ({}/{})…", done, total));
+                    }
+                }
+            }
+            TaskMsg::PrewarmDone {
+                generation,
+                ok,
+                failed,
+            } => {
+                let matches = self
+                    .prewarm_state
+                    .as_ref()
+                    .map(|s| s.generation == generation)
+                    .unwrap_or(false);
+                if matches {
+                    self.prewarm_state = None;
+                    if failed == 0 {
+                        self.info_banner = None;
+                        tracing::info!(
+                            "bundle prewarm done: generation={} ok={} failed=0",
+                            generation,
+                            ok
+                        );
+                    } else {
+                        let total = ok + failed;
+                        self.info_banner = Some(format!(
+                            "Audio ready ({}/{}), {} files unavailable",
+                            ok, total, failed
+                        ));
+                        tracing::warn!(
+                            "bundle prewarm done with failures: generation={} ok={} failed={}",
+                            generation,
+                            ok,
+                            failed
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -1448,6 +1496,162 @@ impl App {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+impl App {
+    /// Minimal App used by prewarm message-handling tests. Fields not
+    /// exercised by those tests are filled with defaults / stubs that
+    /// will panic if accidentally used. Do not extend without thought —
+    /// this is not a general-purpose test fixture.
+    fn test_fixture_minimal() -> Self {
+        use crate::clock::SystemClock;
+        use crate::config::Config;
+        use crate::storage::mistakes::MistakeBook;
+        use crate::storage::paths::DataPaths;
+        use crate::storage::progress::Progress;
+        use crate::tts::speaker::Speaker;
+        use std::sync::Arc;
+
+        struct NoopSpeaker;
+        #[async_trait::async_trait]
+        impl Speaker for NoopSpeaker {
+            async fn speak(
+                &self,
+                _text: &str,
+            ) -> Result<(), crate::tts::speaker::TtsError> {
+                Ok(())
+            }
+            fn cancel(&self) {}
+        }
+
+        let (task_tx, _rx) = tokio::sync::mpsc::channel(8);
+        let tmp = std::env::temp_dir().join("inkworm-test-fixture");
+        let data_paths = DataPaths::for_tests(tmp);
+        let progress = Progress::default();
+        let bundle_player = Arc::new(crate::audio::player::BundlePlayer::new(None));
+
+        Self::new(
+            None,
+            progress,
+            data_paths,
+            Arc::new(SystemClock),
+            Config::default(),
+            MistakeBook::default(),
+            None,
+            task_tx,
+            Arc::new(NoopSpeaker) as Arc<dyn Speaker>,
+            bundle_player,
+        )
+    }
+}
+
+#[cfg(test)]
+mod prewarm_msg_tests {
+    use super::*;
+    use crate::ui::task_msg::TaskMsg;
+
+    fn app_with_prewarm(state: Option<PrewarmState>, gen: u64) -> App {
+        let mut app = App::test_fixture_minimal();
+        app.prewarm_state = state;
+        app.prewarm_generation
+            .store(gen, std::sync::atomic::Ordering::Release);
+        app
+    }
+
+    #[test]
+    fn progress_with_current_generation_updates_banner() {
+        let state = PrewarmState {
+            generation: 3,
+            done: 0,
+            total: 5,
+        };
+        let mut app = app_with_prewarm(Some(state), 3);
+        app.on_task_msg(TaskMsg::PrewarmProgress {
+            generation: 3,
+            done: 2,
+            total: 5,
+        });
+        assert_eq!(
+            app.info_banner.as_deref(),
+            Some("Prewarming audio (2/5)…")
+        );
+        assert_eq!(app.prewarm_state.unwrap().done, 2);
+    }
+
+    #[test]
+    fn progress_with_stale_generation_is_dropped() {
+        let state = PrewarmState {
+            generation: 5,
+            done: 1,
+            total: 5,
+        };
+        let mut app = app_with_prewarm(Some(state), 5);
+        app.info_banner = Some("kept".into());
+        app.on_task_msg(TaskMsg::PrewarmProgress {
+            generation: 4,
+            done: 3,
+            total: 5,
+        });
+        assert_eq!(app.info_banner.as_deref(), Some("kept"));
+        assert_eq!(app.prewarm_state.unwrap().done, 1);
+    }
+
+    #[test]
+    fn done_with_no_failures_clears_banner() {
+        let state = PrewarmState {
+            generation: 9,
+            done: 5,
+            total: 5,
+        };
+        let mut app = app_with_prewarm(Some(state), 9);
+        app.info_banner = Some("Prewarming audio (5/5)…".into());
+        app.on_task_msg(TaskMsg::PrewarmDone {
+            generation: 9,
+            ok: 5,
+            failed: 0,
+        });
+        assert!(app.prewarm_state.is_none());
+        assert!(app.info_banner.is_none());
+    }
+
+    #[test]
+    fn done_with_failures_sets_failure_banner() {
+        let state = PrewarmState {
+            generation: 1,
+            done: 5,
+            total: 5,
+        };
+        let mut app = app_with_prewarm(Some(state), 1);
+        app.on_task_msg(TaskMsg::PrewarmDone {
+            generation: 1,
+            ok: 3,
+            failed: 2,
+        });
+        assert!(app.prewarm_state.is_none());
+        assert_eq!(
+            app.info_banner.as_deref(),
+            Some("Audio ready (3/5), 2 files unavailable")
+        );
+    }
+
+    #[test]
+    fn done_with_stale_generation_is_dropped() {
+        let state = PrewarmState {
+            generation: 2,
+            done: 5,
+            total: 5,
+        };
+        let mut app = app_with_prewarm(Some(state), 2);
+        app.info_banner = Some("kept".into());
+        app.on_task_msg(TaskMsg::PrewarmDone {
+            generation: 1,
+            ok: 5,
+            failed: 0,
+        });
+        assert!(app.prewarm_state.is_some());
+        assert_eq!(app.info_banner.as_deref(), Some("kept"));
     }
 }
 
