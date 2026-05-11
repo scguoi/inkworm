@@ -1527,7 +1527,9 @@ impl App {
         }
 
         let (task_tx, _rx) = tokio::sync::mpsc::channel(8);
-        let tmp = std::env::temp_dir().join("inkworm-test-fixture");
+        let tmp = tempfile::tempdir()
+            .expect("tempdir for test fixture")
+            .into_path();
         let data_paths = DataPaths::for_tests(tmp);
         let progress = Progress::default();
         let bundle_player = Arc::new(crate::audio::player::BundlePlayer::new(None));
@@ -1652,6 +1654,22 @@ mod prewarm_msg_tests {
         });
         assert!(app.prewarm_state.is_some());
         assert_eq!(app.info_banner.as_deref(), Some("kept"));
+    }
+
+    #[test]
+    fn done_with_no_active_state_is_dropped() {
+        // prewarm_state already cleared (e.g. from a previous Done) and
+        // a late message arrives. The handler must drop it cleanly
+        // without setting a banner.
+        let mut app = app_with_prewarm(None, 7);
+        app.info_banner = Some("untouched".into());
+        app.on_task_msg(TaskMsg::PrewarmDone {
+            generation: 7,
+            ok: 5,
+            failed: 0,
+        });
+        assert!(app.prewarm_state.is_none());
+        assert_eq!(app.info_banner.as_deref(), Some("untouched"));
     }
 }
 
