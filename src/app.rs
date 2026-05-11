@@ -158,6 +158,14 @@ impl App {
             .count() as u32;
         if total == 0 {
             tracing::debug!("bundle prewarm: nothing to do");
+            // Still cancel any in-flight prewarm so old Progress messages
+            // (matching the previous generation) don't keep updating the
+            // banner on the new course's screen.
+            if self.prewarm_state.take().is_some() {
+                self.prewarm_generation
+                    .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                self.info_banner = None;
+            }
             return;
         }
 
@@ -1683,5 +1691,29 @@ mod prewarm_msg_tests {
         });
         assert!(app.prewarm_state.is_none());
         assert_eq!(app.info_banner.as_deref(), Some("untouched"));
+    }
+
+    #[test]
+    fn late_progress_for_stale_generation_is_dropped_after_zero_placeholder_switch() {
+        // Simulates: prewarm running for course A (gen=1), user switches
+        // to course B with no placeholders. The zero-placeholder path in
+        // spawn_bundle_prewarm must bump the generation and clear state,
+        // otherwise the in-flight gen=1 task's Progress messages would
+        // keep updating the banner on course B's screen.
+        //
+        // We can't easily drive spawn_bundle_prewarm directly without a
+        // real course, so this test exercises the symptom: a stale
+        // PrewarmProgress arrives after prewarm_state has been cleared
+        // (which simulates what should happen after the zero-placeholder
+        // switch fix). The match arm should drop the message.
+        let mut app = app_with_prewarm(None, 2);
+        app.info_banner = Some("Audio ready elsewhere".into());
+        app.on_task_msg(TaskMsg::PrewarmProgress {
+            generation: 1,
+            done: 5,
+            total: 40,
+        });
+        assert!(app.prewarm_state.is_none());
+        assert_eq!(app.info_banner.as_deref(), Some("Audio ready elsewhere"));
     }
 }
