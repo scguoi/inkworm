@@ -42,12 +42,28 @@ sizes correct), but `stat -f %b` shows `blocks=0` on most of them; rodio's
 
 Three independent units, each with a single responsibility:
 
-### 3.1 `audio::bundle::is_locally_resident(path) -> bool`
+### 3.1 `audio::bundle::is_locally_resident(path) -> bool` and `is_icloud_placeholder(path)`
 
-Pure function. On Unix: returns `std::os::unix::fs::MetadataExt::blocks() > 0`
-via `path.metadata()`. On non-Unix targets (Windows / WASM): returns `true`
-unconditionally — iCloud placeholder semantics are macOS-specific and other
-platforms have no equivalent failure mode for this code path.
+Two predicates, both pure:
+
+- `is_locally_resident`: On Unix, `path.metadata().blocks() > 0`. Returns
+  `false` for missing paths (metadata error) and for zero-block files
+  (iCloud `dataless` placeholders). On non-Unix, returns `true` whenever
+  metadata reads.
+- `is_icloud_placeholder = path.is_file() && !is_locally_resident(path)`.
+  Returns `true` only for *files that exist but have zero physical blocks*
+  — the on-disk signature of an iCloud `dataless` file. Returns `false`
+  for missing paths (which mean "this course shipped without bundle
+  audio", not "needs download"), for directories, and for files with
+  blocks > 0.
+
+The distinction matters: the bundle gate (`bundle_exists`, the inline
+gate in `speak_current_drill`) cares about "can I safely open this without
+blocking on iCloud?" — that's `is_locally_resident`. The prewarm filter
+cares about "should I try to download this?" — that's `is_icloud_placeholder`.
+Conflating them turned every course-without-bundle-audio into a
+"40 files unavailable" banner; the prewarm spun up 40 jobs that all
+failed with `NotFound`.
 
 `bundle_exists` is rewritten as `path.is_file() && is_locally_resident(path)`.
 
@@ -68,7 +84,9 @@ pub fn spawn_prewarm_course(
 Internally:
 
 - Resolve full path list via existing `bundle_paths_for_course`.
-- Skip paths already locally resident (so a re-warm after restart is cheap).
+- Keep only paths where `is_icloud_placeholder(p)` returns `true` —
+  drops both already-resident files (cheap re-warm) and entirely
+  missing files (course has no bundle, prewarm would just fail).
 - Use `futures::stream::iter(remaining_paths).for_each_concurrent(8, ...)`.
 - Each unit of work is `tokio::task::spawn_blocking(move || materialize(&p))`
   followed by an atomic `done` counter and a `TaskMsg::PrewarmProgress`
@@ -171,6 +189,18 @@ When the user switches courses while a prewarm is mid-flight:
 
 This is "best-effort cancellation" — bandwidth is bounded by the in-flight
 window (≤ 8 files), which is acceptable.
+
+## 6.5. Banner interaction with `handle_study_key`
+
+`App::handle_study_key` already clears `info_banner` on any keypress as
+its first action (consuming the key). That's fine for transient banners
+like "Copied to clipboard" or a boot warning, but it must NOT eat the
+user's first keypress just to dismiss the prewarm progress line. The
+fix is to skip that early-return when `prewarm_state.is_some()` — i.e.
+a prewarm is in flight. Once prewarm completes (success → banner is
+already cleared; failure → banner shows "Audio ready ..., K unavailable"
+with `prewarm_state = None`), keypress dismissal resumes its normal
+behavior.
 
 ## 7. Behavior matrix
 
