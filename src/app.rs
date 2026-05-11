@@ -664,8 +664,11 @@ impl App {
     }
 
     fn handle_study_key(&mut self, key: KeyEvent) {
-        // Clear info banner on any key
-        if self.info_banner.is_some() {
+        // Clear info banner on any key — but only when the banner is
+        // user-facing transient state, not an in-flight prewarm progress
+        // line. A prewarm banner is informational and the user should not
+        // have to spend a keypress dismissing it before they can type.
+        if self.info_banner.is_some() && self.prewarm_state.is_none() {
             self.info_banner = None;
             return;
         }

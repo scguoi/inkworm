@@ -186,15 +186,26 @@ async fn corrupt_bundle_does_not_call_speaker() {
     let paths = DataPaths::for_tests(tmp.path().to_path_buf());
     paths.ensure_dirs().unwrap();
     let course = seed_course(&paths);
-    // Place a zero-byte mp3 — bundle "exists" so we commit to that path,
-    // then decode fails and we accept silence (per spec §7).
+    // Place a locally-resident but corrupt mp3 — non-empty bytes so the
+    // file has > 0 physical blocks and passes the iCloud-resident gate,
+    // but content is invalid mp3 so the decoder errors out. We commit
+    // to the bundle path and accept silence (per spec §7 of the
+    // bundled-audio design).
+    //
+    // Zero-byte files are now treated as iCloud `dataless` placeholders
+    // (per 2026-05-11 prewarm design) and fall through to TTS — that's
+    // a different case from real on-disk corruption.
     let order0 = course.sentences[0].order;
     let stage0 = course.sentences[0].drills[0].stage;
     let yyyy_mm = &course.id[0..7];
     let tail = &course.id[8..];
     let dir = paths.courses_dir.join(yyyy_mm).join(tail);
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join(format!("s{:02}-d{}.mp3", order0, stage0)), b"").unwrap();
+    std::fs::write(
+        dir.join(format!("s{:02}-d{}.mp3", order0, stage0)),
+        b"not an mp3, just garbage bytes",
+    )
+    .unwrap();
 
     let (mock, spoken, _cancels) = MockSpeaker::new();
     let app = make_app(paths, mock.clone(), course);
