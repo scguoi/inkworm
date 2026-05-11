@@ -8,6 +8,9 @@ use std::path::{Path, PathBuf};
 
 use crate::storage::course::{Course, StorageError};
 
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+
 /// Resolve the on-disk path for a single drill's bundled mp3.
 ///
 /// Returns `StorageError::InvalidId` when `course_id` does not begin
@@ -34,6 +37,29 @@ pub fn bundle_exists(courses_dir: &Path, course_id: &str, order: u32, stage: u32
     match bundle_path(courses_dir, course_id, order, stage) {
         Ok(p) => p.is_file(),
         Err(_) => false,
+    }
+}
+
+/// On Unix, returns `true` iff `path.metadata().blocks() > 0`. A
+/// regular file that exists logically but has zero physical blocks is
+/// an iCloud `dataless` placeholder on macOS — opening it forces a
+/// synchronous network fetch. On non-Unix targets there is no such
+/// notion, so this function returns `true` for any path whose metadata
+/// reads successfully.
+///
+/// Returns `false` on metadata errors (missing path, permission, etc.).
+pub fn is_locally_resident(path: &Path) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    #[cfg(unix)]
+    {
+        meta.blocks() > 0
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = meta;
+        true
     }
 }
 
@@ -232,5 +258,28 @@ mod tests {
     fn materialize_missing_file_returns_io_error() {
         let err = materialize(Path::new("/definitely/does/not/exist.mp3")).unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn is_locally_resident_false_for_zero_byte_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("placeholder.mp3");
+        std::fs::write(&p, b"").unwrap();
+        assert!(!is_locally_resident(&p));
+    }
+
+    #[test]
+    fn is_locally_resident_true_for_nonempty_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("real.mp3");
+        std::fs::write(&p, b"some bytes").unwrap();
+        assert!(is_locally_resident(&p));
+    }
+
+    #[test]
+    fn is_locally_resident_false_for_missing_path() {
+        assert!(!is_locally_resident(std::path::Path::new(
+            "/definitely/does/not/exist.mp3",
+        )));
     }
 }
