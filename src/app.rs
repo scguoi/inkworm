@@ -1527,7 +1527,7 @@ impl App {
         let (task_tx, _rx) = tokio::sync::mpsc::channel(8);
         let tmp = tempfile::tempdir()
             .expect("tempdir for test fixture")
-            .into_path();
+            .keep();
         let data_paths = DataPaths::for_tests(tmp);
         let progress = Progress::default();
         let bundle_player = Arc::new(crate::audio::player::BundlePlayer::new(None));
@@ -1545,6 +1545,21 @@ impl App {
             bundle_player,
         )
     }
+}
+
+fn render_delete_confirm(frame: &mut Frame, title: &str) {
+    use ratatui::{
+        layout::Rect,
+        style::{Color, Style},
+        text::Span,
+        widgets::Paragraph,
+    };
+
+    let area = frame.area();
+    let y = area.height / 2;
+    let msg = format!("Delete course \"{}\"? (y/n)", title);
+    let para = Paragraph::new(Span::styled(msg, Style::default().fg(Color::Yellow))).centered();
+    frame.render_widget(para, Rect::new(0, y, area.width, 1));
 }
 
 #[cfg(test)]
@@ -1666,19 +1681,4 @@ mod prewarm_msg_tests {
         assert!(app.prewarm_state.is_none());
         assert_eq!(app.info_banner.as_deref(), Some("untouched"));
     }
-}
-
-fn render_delete_confirm(frame: &mut Frame, title: &str) {
-    use ratatui::{
-        layout::Rect,
-        style::{Color, Style},
-        text::Span,
-        widgets::Paragraph,
-    };
-
-    let area = frame.area();
-    let y = area.height / 2;
-    let msg = format!("Delete course \"{}\"? (y/n)", title);
-    let para = Paragraph::new(Span::styled(msg, Style::default().fg(Color::Yellow))).centered();
-    frame.render_widget(para, Rect::new(0, y, area.width, 1));
 }

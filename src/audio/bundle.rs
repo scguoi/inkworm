@@ -388,24 +388,17 @@ mod tests {
 
         // Drain channel with a tight timeout. We expect exactly one
         // PrewarmDone with ok=0 failed=0 (nothing was attempted).
-        let mut got_done = false;
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(500);
-        loop {
-            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-            match tokio::time::timeout(remaining, rx.recv()).await {
-                Ok(Some(TaskMsg::PrewarmDone {
-                    generation: 1,
-                    ok: 0,
-                    failed: 0,
-                })) => {
-                    got_done = true;
-                    break;
-                }
-                Ok(Some(other)) => panic!("unexpected message: {other:?}"),
-                Ok(None) => break,
-                Err(_) => break, // timeout
-            }
-        }
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let got_done = match tokio::time::timeout(remaining, rx.recv()).await {
+            Ok(Some(TaskMsg::PrewarmDone {
+                generation: 1,
+                ok: 0,
+                failed: 0,
+            })) => true,
+            Ok(Some(other)) => panic!("unexpected message: {other:?}"),
+            Ok(None) | Err(_) => false,
+        };
         assert!(got_done, "expected PrewarmDone with ok=0 failed=0");
     }
 
