@@ -5,6 +5,7 @@ use inkworm::app::App;
 use inkworm::clock::SystemClock;
 use inkworm::config::Config;
 use inkworm::storage::course::load_course;
+use inkworm::storage::instance_lock::{InstanceLock, InstanceLockError};
 use inkworm::storage::paths::DataPaths;
 use inkworm::storage::progress::Progress;
 use inkworm::tts::speaker::build_speaker;
@@ -42,6 +43,25 @@ fn main() -> anyhow::Result<()> {
 
     let paths = DataPaths::resolve(cli_config.as_deref())?;
     paths.ensure_dirs()?;
+
+    let _instance_lock = match InstanceLock::try_acquire(&paths.lock_file) {
+        Ok(lock) => lock,
+        Err(InstanceLockError::AlreadyRunning { pid }) => {
+            match pid {
+                Some(p) => eprintln!(
+                    "inkworm: another instance is already running (pid {p}); refusing to start to avoid overwriting its progress."
+                ),
+                None => eprintln!(
+                    "inkworm: another instance is already running; refusing to start to avoid overwriting its progress."
+                ),
+            }
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("inkworm: failed to acquire instance lock: {e}");
+            std::process::exit(1);
+        }
+    };
 
     init_tracing(&paths.root);
     tracing::info!("inkworm starting");
