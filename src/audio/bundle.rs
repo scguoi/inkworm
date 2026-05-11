@@ -32,10 +32,11 @@ pub fn bundle_path(
 }
 
 /// Convenience: returns `true` iff `bundle_path` resolves AND the file
-/// exists. Any error (invalid id, IO error) maps to `false`.
+/// exists AND the file is locally resident (not an iCloud placeholder).
+/// Any error (invalid id, IO error, placeholder) maps to `false`.
 pub fn bundle_exists(courses_dir: &Path, course_id: &str, order: u32, stage: u32) -> bool {
     match bundle_path(courses_dir, course_id, order, stage) {
-        Ok(p) => p.is_file(),
+        Ok(p) => p.is_file() && is_locally_resident(&p),
         Err(_) => false,
     }
 }
@@ -198,7 +199,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("2026-05").join("06-foo");
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("s01-d1.mp3"), b"").unwrap();
+        std::fs::write(dir.join("s01-d1.mp3"), b"x").unwrap();
         assert!(bundle_exists(tmp.path(), "2026-05-06-foo", 1, 1));
     }
 
@@ -207,7 +208,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("2026-05").join("06-foo");
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("s01-d1.mp3"), b"").unwrap();
+        std::fs::write(dir.join("s01-d1.mp3"), b"x").unwrap();
         assert!(!bundle_exists(tmp.path(), "2026-05-06-foo", 1, 2));
     }
 
@@ -281,5 +282,15 @@ mod tests {
         assert!(!is_locally_resident(std::path::Path::new(
             "/definitely/does/not/exist.mp3",
         )));
+    }
+
+    #[test]
+    fn bundle_exists_false_for_zero_byte_placeholder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("2026-05").join("06-foo");
+        std::fs::create_dir_all(&dir).unwrap();
+        // Zero-byte file simulates an iCloud dataless placeholder
+        std::fs::write(dir.join("s01-d1.mp3"), b"").unwrap();
+        assert!(!bundle_exists(tmp.path(), "2026-05-06-foo", 1, 1));
     }
 }
