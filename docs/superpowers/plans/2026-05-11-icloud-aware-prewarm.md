@@ -642,7 +642,39 @@ In `src/app.rs`, find the existing `fn spawn_bundle_prewarm(&self)` method (arou
     }
 ```
 
-- [ ] **Step 5.5: Fix the three existing callers that now need `&mut self`**
+- [ ] **Step 5.5: Tighten the inline bundle gate in `speak_current_drill`**
+
+Spec §3.1 assumes `bundle_exists` is the gate consulted by `App::speak_current_drill`, but the actual gate is an inline `path.exists()` check at `src/app.rs:313`. Without this fix, tightening `bundle_exists` alone does nothing for the playback path. Replace the inline check:
+
+In `src/app.rs`, find the block inside `speak_current_drill` (around lines 309–323):
+
+```rust
+        if let Some((cid, order, stage)) = bundle_target {
+            if let Ok(path) =
+                crate::audio::bundle::bundle_path(&self.data_paths.courses_dir, &cid, order, stage)
+            {
+                if path.exists() {
+                    let player = Arc::clone(&self.bundle_player);
+                    tokio::spawn(async move {
+                        if let Err(e) = player.play(&path).await {
+                            tracing::warn!("bundle playback failed: {e}");
+                        }
+                    });
+                    return;
+                }
+            }
+        }
+```
+
+Change exactly one line — `if path.exists() {` becomes:
+
+```rust
+                if path.is_file() && crate::audio::bundle::is_locally_resident(&path) {
+```
+
+Rationale for inlining instead of calling `bundle_exists`: we already have `path` materialized; calling `bundle_exists` would re-run `bundle_path` and re-parse the course id. The composite predicate here is identical to what `bundle_exists` returns.
+
+- [ ] **Step 5.6: Fix the three existing callers that now need `&mut self`**
 
 There are three call sites for `spawn_bundle_prewarm`. Two are inside methods that already have `&mut self`, but one is `App::new` which uses `let mut app = Self { ... }; ... app.spawn_bundle_prewarm();` — that's fine because `app` is mutable.
 
@@ -657,16 +689,16 @@ Expected three lines:
 
 If you see compile errors in this step about mutable borrow conflicts, the most likely cause is `self.study.current_course()` returning a borrow that conflicts. The fix is already baked into the implementation in 5.4: we clone the course out via `course.clone()` and drop the borrow before mutating `self.info_banner`.
 
-- [ ] **Step 5.6: Build the crate to confirm everything compiles except the still-non-exhaustive match in `on_task_msg`**
+- [ ] **Step 5.7: Build the crate to confirm everything compiles except the still-non-exhaustive match in `on_task_msg`**
 
 Run: `cargo build 2>&1 | head -40`
 Expected: the only remaining error should be the non-exhaustive `match msg { ... }` inside `on_task_msg` for the two new variants. No other errors. (Task 6 closes this.)
 
-- [ ] **Step 5.7: Commit**
+- [ ] **Step 5.8: Commit**
 
 ```bash
 git add src/app.rs
-git commit -m "feat(app): prewarm orchestration with generation counter and banner"
+git commit -m "feat(app): prewarm orchestration plus iCloud-resident bundle gate"
 ```
 
 ---
