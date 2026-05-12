@@ -19,7 +19,7 @@ pub fn render_tts_status(
 ) {
     let area = frame.area();
     let width = 50u16.min(area.width.saturating_sub(4));
-    let height = 12u16;
+    let height = 12u16.min(area.height.saturating_sub(2));
     let left = (area.width.saturating_sub(width)) / 2;
     let top = (area.height.saturating_sub(height)) / 2;
     let rect = Rect::new(left, top, width, height);
@@ -105,4 +105,53 @@ pub fn render_tts_status(
         .border_style(Style::default().fg(Color::White));
     let para = Paragraph::new(lines).block(block);
     frame.render_widget(para, rect);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{IflytekConfig, TtsConfig, TtsOverride};
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    fn cfg() -> TtsConfig {
+        TtsConfig {
+            enabled: true,
+            r#override: TtsOverride::Auto,
+            iflytek: IflytekConfig {
+                app_id: "a".into(),
+                api_key: "k".into(),
+                api_secret: "s".into(),
+                voice: "x".into(),
+            },
+        }
+    }
+
+    #[test]
+    fn render_tts_status_does_not_panic_on_short_terminal() {
+        // Repro for: index outside of buffer when terminal height < hardcoded 12.
+        let backend = TestBackend::new(156, 9);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render_tts_status(f, &cfg(), OutputKind::Unknown, None, (0, 0), false);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn render_tts_status_survives_extremely_small_terminal() {
+        let backend = TestBackend::new(20, 2);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render_tts_status(
+                f,
+                &cfg(),
+                OutputKind::Unknown,
+                Some("boom".into()),
+                (3, 1024),
+                true,
+            );
+        })
+        .unwrap();
+    }
 }
