@@ -3,7 +3,7 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::config::TtsConfig;
@@ -104,6 +104,7 @@ pub fn render_tts_status(
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::White));
     let para = Paragraph::new(lines).block(block);
+    frame.render_widget(Clear, rect);
     frame.render_widget(para, rect);
 }
 
@@ -136,6 +137,37 @@ mod tests {
             render_tts_status(f, &cfg(), OutputKind::Unknown, None, (0, 0), false);
         })
         .unwrap();
+    }
+
+    #[test]
+    fn render_tts_status_clears_background_inside_overlay() {
+        // Bleed-through regression: paragraph cells inside the overlay box
+        // must not show content rendered underneath.
+        let backend = TestBackend::new(60, 15);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            // Underlying content: one full row of 'X' per terminal row.
+            let area = f.area();
+            let row: String = "X".repeat(area.width as usize);
+            let lines: Vec<Line> = (0..area.height).map(|_| Line::from(row.clone())).collect();
+            let underlay = Paragraph::new(lines);
+            f.render_widget(underlay, area);
+            render_tts_status(f, &cfg(), OutputKind::Unknown, None, (0, 0), false);
+        })
+        .unwrap();
+
+        // Overlay rect: width=50, height=12, left=5, top=1.
+        // An interior cell that the overlay's Paragraph leaves blank
+        // (e.g. just inside the right border, on the title row) must
+        // not be 'X' — Clear should have wiped the underlay there.
+        let buf = term.backend().buffer();
+        let cell = buf.cell(ratatui::layout::Position::new(50, 2)).unwrap();
+        assert_ne!(
+            cell.symbol(),
+            "X",
+            "overlay should clear underlying content (cell at col=50,row=2 = {:?})",
+            cell.symbol()
+        );
     }
 
     #[test]
