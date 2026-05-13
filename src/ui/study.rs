@@ -150,7 +150,10 @@ impl StudyState {
                 }
             }
         }
-        self.phase = StudyPhase::Complete;
+        // Fully mastered — enter review mode at the first drill instead of
+        // locking the user out behind a "Course complete!" overlay on reopen.
+        self.sentence_idx = 0;
+        self.drill_idx = 0;
     }
 
     pub fn current_drill(&self) -> Option<&Drill> {
@@ -720,6 +723,40 @@ mod tests {
             state.advance();
         }
         assert_eq!(*state.phase(), StudyPhase::Complete);
+    }
+
+    #[test]
+    fn opening_fully_mastered_course_enters_review_at_first_drill() {
+        // Reopening a fully-mastered course used to short-circuit
+        // `StudyState::new` to phase=Complete via `seek_first_incomplete`,
+        // making the course unopenable for review. Expected behavior: stay
+        // Active and point at drill (0, 0) so the user can practice again.
+        let clk = clock();
+        let course = fixture_course();
+        let mut progress = Progress::empty();
+        progress.active_course_id = Some(course.id.clone());
+        {
+            let cp = progress.course_mut(&course.id);
+            cp.last_studied_at = clk.now();
+            for sentence in &course.sentences {
+                let sp = cp.sentences.entry(sentence.order.to_string()).or_default();
+                for drill in &sentence.drills {
+                    sp.drills.insert(
+                        drill.stage.to_string(),
+                        DrillProgress {
+                            mastered_count: 1,
+                            last_correct_at: Some(clk.now()),
+                        },
+                    );
+                }
+            }
+        }
+
+        let state = StudyState::new(Some(course), progress);
+        assert_eq!(*state.phase(), StudyPhase::Active);
+        let drill = state.current_drill().unwrap();
+        assert_eq!(drill.stage, 1);
+        assert_eq!(drill.english, "AI think day");
     }
 
     #[test]
