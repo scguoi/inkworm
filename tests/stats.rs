@@ -5,7 +5,7 @@ use inkworm::clock::FixedClock;
 use inkworm::stats::StatsTracker;
 use inkworm::storage::progress::Progress;
 use inkworm::storage::stats::Stats;
-use inkworm::ui::study::{StudyState, SubmitTick};
+use inkworm::ui::study::StudyState;
 
 fn at(h: u32, m: u32, s: u32) -> chrono::DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 5, 13, h, m, s).unwrap()
@@ -45,8 +45,6 @@ fn retry_until_correct_counts_each_submit() {
     assert_eq!(d.submits, 2, "both attempts counted");
     assert_eq!(d.correct, 1, "only the second counted correct");
     assert_eq!(d.words, words * 2);
-    // Suppress unused-import warning if SubmitTick isn't referenced directly:
-    let _ = std::marker::PhantomData::<SubmitTick>;
 }
 
 #[test]
