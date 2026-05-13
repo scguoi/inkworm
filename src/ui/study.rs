@@ -87,6 +87,35 @@ impl StudyState {
         state
     }
 
+    /// Build a state pointing at the mistakes session's current drill. Skips
+    /// `seek_first_incomplete` — the queue, not `mastered_count`, decides when
+    /// the session is done, so a fully-mastered course must still render as
+    /// Active here. Falls back to Empty only when the course itself is gone.
+    pub fn new_for_mistakes(
+        course: Option<Course>,
+        progress: Progress,
+        sentence_idx: usize,
+        drill_idx: usize,
+    ) -> Self {
+        let phase = match &course {
+            None => StudyPhase::Empty,
+            Some(c) if c.sentences.is_empty() => StudyPhase::Empty,
+            Some(_) => StudyPhase::Active,
+        };
+        Self {
+            course,
+            sentence_idx,
+            drill_idx,
+            input: String::new(),
+            feedback: FeedbackState::Typing,
+            phase,
+            progress,
+            correct_at: None,
+            mode: StudyMode::Mistakes,
+            first_attempt_pending: true,
+        }
+    }
+
     fn resolve_phase(&mut self) {
         match &self.course {
             None => self.phase = StudyPhase::Empty,
@@ -819,6 +848,47 @@ mod tests {
         assert_eq!(*state.feedback(), FeedbackState::Correct);
         // Mastered count must NOT have been updated in mistakes mode.
         assert!(state.progress().courses.is_empty());
+    }
+
+    #[test]
+    fn new_for_mistakes_stays_active_even_when_all_course_drills_mastered() {
+        // Repro for the "Course complete!" overlay seen in mistakes mode when
+        // the underlying course is fully mastered in normal flow. The plain
+        // `StudyState::new` constructor walks the course via
+        // `seek_first_incomplete`, which short-circuits to phase=Complete the
+        // moment every drill has mastered_count >= 1 — that's correct for
+        // Course mode but wrong for Mistakes mode, where the session queue,
+        // not the course, decides when we're done.
+        let clk = clock();
+        let course = fixture_course();
+        let course_id = course.id.clone();
+        let mut progress = Progress::empty();
+        let cp = progress.course_mut(&course_id);
+        for sentence in &course.sentences {
+            let sp = cp.sentences.entry(sentence.order.to_string()).or_default();
+            for drill in &sentence.drills {
+                sp.drills.insert(
+                    drill.stage.to_string(),
+                    DrillProgress {
+                        mastered_count: 1,
+                        last_correct_at: Some(clk.now()),
+                    },
+                );
+            }
+        }
+        let mut state = StudyState::new_for_mistakes(Some(course), progress, 0, 0);
+        assert_eq!(*state.phase(), StudyPhase::Active);
+        assert_eq!(*state.mode(), StudyMode::Mistakes);
+        // And the resulting state must accept input + submit.
+        for c in "AI think day".chars() {
+            state.type_char(c);
+        }
+        let outcome = state.submit(&clk);
+        assert!(
+            outcome.is_some(),
+            "submit must yield outcome in mistakes mode"
+        );
+        assert_eq!(*state.feedback(), FeedbackState::Correct);
     }
 
     #[test]

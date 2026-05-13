@@ -235,10 +235,8 @@ impl App {
             return;
         };
         let progress_clone = self.study.progress().clone();
-        let mut new_state = StudyState::new(Some(course), progress_clone);
-        new_state.set_mode(StudyMode::Mistakes);
-        new_state.set_current_drill(sentence_idx, drill_idx);
-        self.study = new_state;
+        self.study =
+            StudyState::new_for_mistakes(Some(course), progress_clone, sentence_idx, drill_idx);
         self.spawn_bundle_prewarm();
         self.speak_current_drill();
     }
