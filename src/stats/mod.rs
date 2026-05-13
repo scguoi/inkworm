@@ -2,8 +2,13 @@
 //!
 //! See spec: docs/superpowers/specs/2026-05-13-learning-stats-design.md
 
+pub mod aggregate;
 pub mod tracker;
 
+pub use aggregate::{
+    all_time_totals, recent_months, recent_weeks, this_week, today_totals, week_totals, MonthRow,
+    Totals, WeekDayCell, WeekRow,
+};
 pub use tracker::{StatsTracker, IDLE_THRESHOLD_MS};
 
 /// Counts English words in a drill reference string.
