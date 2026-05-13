@@ -44,6 +44,12 @@ pub struct SubmitOutcome {
     pub first_attempt_correct: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubmitTick {
+    pub was_correct: bool,
+    pub words: u32,
+}
+
 pub struct StudyState {
     course: Option<Course>,
     sentence_idx: usize,
@@ -214,17 +220,27 @@ impl StudyState {
         self.input.pop();
     }
 
-    pub fn submit(&mut self, clock: &dyn Clock) -> Option<SubmitOutcome> {
+    pub fn submit(&mut self, clock: &dyn Clock) -> (Option<SubmitOutcome>, Option<SubmitTick>) {
         if self.phase != StudyPhase::Active {
-            return None;
+            return (None, None);
         }
         if self.feedback != FeedbackState::Typing {
-            return None;
+            return (None, None);
         }
-        let course = self.course.as_ref()?;
-        let sentence = course.sentences.get(self.sentence_idx)?;
-        let drill = sentence.drills.get(self.drill_idx)?;
+        let course = match self.course.as_ref() {
+            Some(c) => c,
+            None => return (None, None),
+        };
+        let sentence = match course.sentences.get(self.sentence_idx) {
+            Some(s) => s,
+            None => return (None, None),
+        };
+        let drill = match sentence.drills.get(self.drill_idx) {
+            Some(d) => d,
+            None => return (None, None),
+        };
         let was_correct = judge::equals(&self.input, &drill.english);
+        let words = drill.english.split_whitespace().count() as u32;
         let drill_ref = DrillRef {
             course_id: course.id.clone(),
             sentence_order: sentence.order,
@@ -239,6 +255,7 @@ impl StudyState {
         } else {
             None
         };
+        let tick = Some(SubmitTick { was_correct, words });
         if was_correct {
             if matches!(self.mode, StudyMode::Course) {
                 self.record_correct(clock);
@@ -248,7 +265,7 @@ impl StudyState {
         } else {
             self.feedback = FeedbackState::Wrong;
         }
-        outcome
+        (outcome, tick)
     }
 
     /// Returns `true` if the state advanced to the next drill. Call from a
@@ -823,7 +840,7 @@ mod tests {
             // wrong
             state.type_char(c);
         }
-        let o1 = state.submit(&clk);
+        let (o1, _) = state.submit(&clk);
         assert_eq!(
             o1,
             Some(SubmitOutcome {
@@ -840,7 +857,7 @@ mod tests {
         for c in "AI think day".chars() {
             state.type_char(c);
         }
-        let o2 = state.submit(&clk);
+        let (o2, _) = state.submit(&clk);
         assert_eq!(o2, None);
         // mastered_count still updated for Course mode.
         let dp = &state.progress().courses["2026-04-21-ted-ai"].sentences["1"].drills["1"];
@@ -912,7 +929,7 @@ mod tests {
         for c in "AI think day".chars() {
             state.type_char(c);
         }
-        let outcome = state.submit(&clk);
+        let (outcome, _) = state.submit(&clk);
         assert!(
             outcome.is_some(),
             "submit must yield outcome in mistakes mode"
@@ -927,7 +944,7 @@ mod tests {
         for c in "AI think day".chars() {
             state.type_char(c);
         }
-        let o = state.submit(&clk);
+        let (o, tick) = state.submit(&clk);
         assert_eq!(
             o,
             Some(SubmitOutcome {
@@ -939,6 +956,70 @@ mod tests {
                 first_attempt_correct: true,
             })
         );
+        assert_eq!(
+            tick,
+            Some(SubmitTick {
+                was_correct: true,
+                words: 3
+            })
+        );
         assert_eq!(*state.feedback(), FeedbackState::Correct);
+    }
+
+    #[test]
+    fn submit_returns_tick_for_every_attempt() {
+        use crate::storage::course::{Drill, Focus, Sentence, Source, SourceKind};
+        use chrono::TimeZone;
+        let clk = FixedClock(Utc.with_ymd_and_hms(2026, 5, 13, 12, 0, 0).unwrap());
+        let course = Course {
+            schema_version: 2,
+            id: "2026-05-13-test".into(),
+            title: "T".into(),
+            description: None,
+            source: Source {
+                kind: SourceKind::Manual,
+                url: String::new(),
+                created_at: Utc.with_ymd_and_hms(2026, 5, 13, 0, 0, 0).unwrap(),
+                model: String::new(),
+            },
+            sentences: vec![Sentence {
+                order: 1,
+                drills: vec![Drill {
+                    stage: 1,
+                    focus: Focus::Keywords,
+                    chinese: "你好".into(),
+                    english: "hello world".into(),
+                    soundmark: String::new(),
+                }],
+            }],
+        };
+        let mut s = StudyState::new(Some(course), Progress::empty());
+        // Wrong attempt
+        for c in "wrong".chars() {
+            s.type_char(c);
+        }
+        let (out1, tick1) = s.submit(&clk);
+        assert!(out1.is_some()); // first attempt
+        assert_eq!(
+            tick1,
+            Some(SubmitTick {
+                was_correct: false,
+                words: 2
+            })
+        );
+        // After Wrong, clear input and retry correctly
+        s.clear_and_restart();
+        for c in "hello world".chars() {
+            s.type_char(c);
+        }
+        let (out2, tick2) = s.submit(&clk);
+        assert!(out2.is_none()); // first_attempt_pending consumed
+        assert_eq!(
+            tick2,
+            Some(SubmitTick {
+                was_correct: true,
+                words: 2
+            })
+        );
     }
 }

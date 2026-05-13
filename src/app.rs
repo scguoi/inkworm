@@ -743,10 +743,11 @@ impl App {
                     if self.study.input().is_empty() {
                         self.speak_current_drill();
                     } else {
-                        let outcome = self.study.submit(self.clock.as_ref());
+                        let (outcome, tick) = self.study.submit(self.clock.as_ref());
                         if let Some(o) = outcome {
                             self.handle_submit_outcome(o);
                         }
+                        let _ = tick; // wired up in Task 6
                     }
                 }
                 KeyCode::Tab => {
