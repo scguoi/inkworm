@@ -58,6 +58,11 @@ pub struct App {
     pub generate: Option<GenerateSubstate>,
     pub config: Config,
     pub mistakes: MistakeBook,
+    /// Local date as of the last `on_tick`. When `clock.today_local()` differs
+    /// from this, the process has crossed midnight (long-running session) and
+    /// we re-run the mistakes auto-launch chain, same as if the user had
+    /// restarted inkworm. Only updated through `day_has_rolled_over`.
+    last_seen_day: chrono::NaiveDate,
     pub delete_confirming: Option<String>,
     pub config_wizard: Option<crate::ui::config_wizard::WizardState>,
     pub course_list: Option<crate::ui::course_list::CourseListState>,
@@ -89,6 +94,7 @@ impl App {
         speaker: Arc<dyn Speaker>,
         bundle_player: Arc<crate::audio::player::BundlePlayer>,
     ) -> Self {
+        let last_seen_day = clock.today_local();
         let mut app = Self {
             screen: Screen::Study,
             should_quit: false,
@@ -102,6 +108,7 @@ impl App {
             generate: None,
             config,
             mistakes,
+            last_seen_day,
             delete_confirming: None,
             config_wizard: None,
             course_list: None,
@@ -133,6 +140,17 @@ impl App {
             self.enter_mistakes_mode_at_current_drill();
         }
         self.save_mistakes();
+    }
+
+    /// True iff the local date has changed since the last call. Latches —
+    /// repeated calls on the same day return false until the next rollover.
+    fn day_has_rolled_over(&mut self) -> bool {
+        let today = self.clock.today_local();
+        if today == self.last_seen_day {
+            return false;
+        }
+        self.last_seen_day = today;
+        true
     }
 
     fn load_course_owned(&self, id: &str) -> Option<crate::storage::course::Course> {
@@ -470,6 +488,12 @@ impl App {
                 let kind = crate::tts::device::detect_output_kind().unwrap_or(OutputKind::Unknown);
                 let _ = task_tx.blocking_send(TaskMsg::DeviceDetected(kind));
             });
+        }
+        // Long-running session crossed local midnight: replay the mistakes
+        // auto-launch chain so today's review still pops, matching what a
+        // fresh launch would have done.
+        if self.day_has_rolled_over() {
+            self.startup_apply_mistakes_session();
         }
         // Auto-advance after a correct answer (0.5s linger).
         if matches!(self.screen, Screen::Study) {
@@ -1713,5 +1737,99 @@ mod prewarm_msg_tests {
         });
         assert!(app.prewarm_state.is_none());
         assert_eq!(app.info_banner.as_deref(), Some("Audio ready elsewhere"));
+    }
+}
+
+#[cfg(test)]
+mod cross_day_tests {
+    use super::*;
+    use crate::clock::Clock;
+    use crate::config::Config;
+    use crate::storage::mistakes::MistakeBook;
+    use crate::storage::paths::DataPaths;
+    use crate::storage::progress::Progress;
+    use crate::tts::speaker::{Speaker, TtsError};
+    use chrono::{DateTime, Duration, TimeZone, Utc};
+    use std::sync::{Arc, Mutex};
+
+    /// Clock that tests can advance. Used because `FixedClock` cannot change
+    /// after construction; long-running cross-day behavior needs to compare
+    /// "before midnight" and "after midnight" against the same `App`.
+    struct MutableClock(Mutex<DateTime<Utc>>);
+
+    impl MutableClock {
+        fn new(t: DateTime<Utc>) -> Self {
+            Self(Mutex::new(t))
+        }
+        fn advance(&self, by: Duration) {
+            let mut t = self.0.lock().unwrap();
+            *t += by;
+        }
+    }
+
+    impl Clock for MutableClock {
+        fn now(&self) -> DateTime<Utc> {
+            *self.0.lock().unwrap()
+        }
+    }
+
+    struct NoopSpeaker;
+    #[async_trait::async_trait]
+    impl Speaker for NoopSpeaker {
+        async fn speak(&self, _text: &str) -> Result<(), TtsError> {
+            Ok(())
+        }
+        fn cancel(&self) {}
+    }
+
+    fn app_with_clock(clock: Arc<MutableClock>) -> App {
+        let (task_tx, _rx) = tokio::sync::mpsc::channel(8);
+        let tmp = tempfile::tempdir()
+            .expect("tempdir for test fixture")
+            .keep();
+        let data_paths = DataPaths::for_tests(tmp);
+        let bundle_player = Arc::new(crate::audio::player::BundlePlayer::new(None));
+        App::new(
+            None,
+            Progress::default(),
+            data_paths,
+            clock,
+            Config::default(),
+            MistakeBook::default(),
+            None,
+            task_tx,
+            Arc::new(NoopSpeaker) as Arc<dyn Speaker>,
+            bundle_player,
+        )
+    }
+
+    #[test]
+    fn day_has_rolled_over_fires_once_per_date_change() {
+        // Pick noon UTC so a 24h advance lands the local-date check cleanly
+        // on the next day for any timezone west of +12:00.
+        let t0 = Utc.with_ymd_and_hms(2026, 5, 12, 12, 0, 0).unwrap();
+        let clock = Arc::new(MutableClock::new(t0));
+        let mut app = app_with_clock(Arc::clone(&clock));
+
+        // Same day: no rollover yet.
+        assert!(
+            !app.day_has_rolled_over(),
+            "first poll on launch day must return false"
+        );
+        // Idempotent: still no rollover after a second poll.
+        assert!(!app.day_has_rolled_over());
+
+        // Cross local midnight.
+        clock.advance(Duration::hours(24));
+        assert!(
+            app.day_has_rolled_over(),
+            "first poll after the date changes must return true"
+        );
+        // Latches: subsequent polls on the same new day return false.
+        assert!(!app.day_has_rolled_over());
+
+        // Another midnight crossing — fires again.
+        clock.advance(Duration::hours(24));
+        assert!(app.day_has_rolled_over());
     }
 }
