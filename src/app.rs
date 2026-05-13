@@ -372,17 +372,11 @@ impl App {
             return;
         }
 
-        // Resolve bundle target before borrowing `drill` further. Two
-        // separate `&self.study` borrows are issued sequentially so the
-        // borrow checker is happy.
-        let active_id = self.study.progress().active_course_id.clone();
-        let sentence_order = self.study.current_sentence().map(|s| s.order);
-        let bundle_target: Option<(String, u32, u32)> = match (active_id, sentence_order) {
-            (Some(cid), Some(order)) => Some((cid, order, drill.stage)),
-            _ => None,
-        };
-
-        if let Some((cid, order, stage)) = bundle_target {
+        // Resolve the bundle's (course, sentence, stage) from the loaded
+        // course — not from `progress.active_course_id`, which in mistakes
+        // mode points at the user's normal-flow course rather than the queue's
+        // current drill and would play a completely unrelated audio file.
+        if let Some((cid, order, stage)) = self.study.bundle_target() {
             if let Ok(path) =
                 crate::audio::bundle::bundle_path(&self.data_paths.courses_dir, &cid, order, stage)
             {

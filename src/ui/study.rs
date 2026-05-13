@@ -181,6 +181,17 @@ impl StudyState {
         self.course.as_ref()
     }
 
+    /// `(course_id, sentence_order, drill_stage)` for the drill currently
+    /// loaded — the unique key that `audio::bundle::bundle_path` consumes.
+    /// Sourced from `self.course` so it stays correct in mistakes mode, where
+    /// the loaded course can differ from `progress.active_course_id`.
+    pub fn bundle_target(&self) -> Option<(String, u32, u32)> {
+        let course = self.course.as_ref()?;
+        let sentence = course.sentences.get(self.sentence_idx)?;
+        let drill = sentence.drills.get(self.drill_idx)?;
+        Some((course.id.clone(), sentence.order, drill.stage))
+    }
+
     pub fn type_char(&mut self, c: char) {
         if self.phase != StudyPhase::Active {
             return;
@@ -848,6 +859,24 @@ mod tests {
         assert_eq!(*state.feedback(), FeedbackState::Correct);
         // Mastered count must NOT have been updated in mistakes mode.
         assert!(state.progress().courses.is_empty());
+    }
+
+    #[test]
+    fn bundle_target_uses_loaded_course_not_progress_active_course() {
+        // Mistakes-mode bug: speak_current_drill resolved the audio file via
+        // `progress.active_course_id`, but in mistakes mode the loaded course
+        // (the queue's current drill) differs from the user's normal active
+        // course. Bundle path must follow the drill we're actually showing.
+        let course = fixture_course();
+        let mut progress = Progress::empty();
+        progress.active_course_id = Some("some-other-course-the-user-was-just-on".into());
+        let state = StudyState::new_for_mistakes(Some(course.clone()), progress, 0, 0);
+        let target = state.bundle_target();
+        assert_eq!(
+            target,
+            Some((course.id.clone(), 1, 1)),
+            "bundle target must come from the loaded course, not the progress's active course"
+        );
     }
 
     #[test]
