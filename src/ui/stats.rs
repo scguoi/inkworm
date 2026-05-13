@@ -343,6 +343,25 @@ mod tests {
     }
 
     #[test]
+    fn mini_strip_format_no_data() {
+        let t = Totals::default();
+        assert_eq!(fmt_duration(t.active_ms), "0m");
+        assert_eq!(fmt_accuracy(&t), "--");
+    }
+
+    #[test]
+    fn mini_strip_format_with_data() {
+        let t = Totals {
+            active_ms: 12 * 60_000 + 23_000,
+            submits: 24,
+            correct: 22,
+            words: 168,
+        };
+        assert_eq!(fmt_duration(t.active_ms), "12m");
+        assert_eq!(fmt_accuracy(&t), "92%");
+    }
+
+    #[test]
     fn renders_full_state_without_panic() {
         let backend = TestBackend::new(80, 30);
         let mut term = Terminal::new(backend).unwrap();

@@ -1275,6 +1275,30 @@ impl App {
                 .centered();
             frame.render_widget(para, Rect::new(inner.x, y, inner.width, 1));
         }
+
+        if matches!(self.screen, Screen::Study) {
+            let t = self.stats.today_stats();
+            let acc = if t.submits == 0 {
+                "--".to_string()
+            } else {
+                let pct = (t.correct as f64 * 100.0 / t.submits as f64).round() as u32;
+                format!("{}%", pct)
+            };
+            let text = format!(
+                "{} · {}w · {}",
+                crate::ui::stats::fmt_duration(t.active_ms),
+                t.words,
+                acc
+            );
+            let y = last_row.saturating_sub(row_from_bottom);
+            let para = Paragraph::new(Line::from(text))
+                .style(Style::default().fg(Color::DarkGray))
+                .right_aligned();
+            frame.render_widget(para, Rect::new(inner.x, y, inner.width, 1));
+            // intentionally do NOT bump row_from_bottom here — the mini-strip
+            // is the bottom-most info and shouldn't push other banners up
+            // beyond what they already need.
+        }
     }
 
     pub fn render(&self, frame: &mut Frame) {
