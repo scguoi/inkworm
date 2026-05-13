@@ -1274,6 +1274,7 @@ impl App {
                 .style(Style::default().fg(Color::Red))
                 .centered();
             frame.render_widget(para, Rect::new(inner.x, y, inner.width, 1));
+            row_from_bottom += 1;
         }
 
         if matches!(self.screen, Screen::Study) {
