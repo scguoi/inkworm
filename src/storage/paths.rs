@@ -16,6 +16,7 @@ pub struct DataPaths {
     pub mistakes_file: PathBuf,
     pub log_file: PathBuf,
     pub lock_file: PathBuf,
+    pub stats_file: PathBuf,
     pub courses_dir: PathBuf,
     pub failed_dir: PathBuf,
     pub tts_cache_dir: PathBuf,
@@ -49,6 +50,7 @@ impl DataPaths {
             mistakes_file: root.join("mistakes.json"),
             log_file: root.join("inkworm.log"),
             lock_file: root.join("inkworm.lock"),
+            stats_file: root.join("stats.json"),
             courses_dir: root.join("courses"),
             failed_dir: root.join("failed"),
             tts_cache_dir: root.join("tts-cache"),
@@ -76,11 +78,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn from_root_sets_mistakes_file() {
+    fn from_root_sets_mistakes_and_stats_files() {
         let p = DataPaths::for_tests(PathBuf::from("/tmp/inkworm-test"));
         assert_eq!(
             p.mistakes_file,
             PathBuf::from("/tmp/inkworm-test/mistakes.json")
         );
+        assert_eq!(p.stats_file, PathBuf::from("/tmp/inkworm-test/stats.json"));
     }
 }

@@ -8,6 +8,7 @@ pub mod migrate;
 pub mod mistakes;
 pub mod paths;
 pub mod progress;
+pub mod stats;
 
 pub use course::{
     Course, CourseMeta, Drill, Focus, Sentence, Source, SourceKind, StorageError, ValidationError,
