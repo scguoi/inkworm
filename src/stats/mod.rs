@@ -6,8 +6,8 @@ pub mod aggregate;
 pub mod tracker;
 
 pub use aggregate::{
-    all_time_totals, recent_months, recent_weeks, this_week, today_totals, week_totals, MonthRow,
-    Totals, WeekDayCell, WeekRow,
+    all_time_totals, iso_week_label, recent_months, recent_weeks, this_week, today_totals,
+    week_totals, MonthRow, Totals, WeekDayCell, WeekRow,
 };
 pub use tracker::{StatsTracker, IDLE_THRESHOLD_MS};
 

@@ -94,7 +94,7 @@ pub fn this_week(stats: &Stats, today: NaiveDate) -> [WeekDayCell; 7] {
     out
 }
 
-/// Returns up to `n` past ISO weeks (newest first), **excluding** the
+/// Returns exactly `n` past ISO weeks (newest first), **excluding** the
 /// current ISO week (which is already presented as the "This week" strip).
 /// Empty weeks are padded with zero `Totals` to keep the row count stable.
 pub fn recent_weeks(stats: &Stats, today: NaiveDate, n: usize) -> Vec<WeekRow> {
@@ -117,7 +117,7 @@ pub fn recent_weeks(stats: &Stats, today: NaiveDate, n: usize) -> Vec<WeekRow> {
     out
 }
 
-/// Returns up to `n` past months (newest first), **including** the current
+/// Returns exactly `n` past months (newest first), **including** the current
 /// month. Empty months are padded with zero `Totals`.
 pub fn recent_months(stats: &Stats, today: NaiveDate, n: usize) -> Vec<MonthRow> {
     let mut out = Vec::with_capacity(n);
