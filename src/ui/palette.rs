@@ -85,6 +85,13 @@ pub const COMMANDS: &[Command] = &[
         available: true,
         takes_args: false,
     },
+    Command {
+        name: "stats",
+        aliases: &[],
+        description: "View learning statistics",
+        available: true,
+        takes_args: false,
+    },
 ];
 
 pub struct PaletteState {

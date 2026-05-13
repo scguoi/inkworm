@@ -35,6 +35,13 @@ pub enum Screen {
     CourseList,
     TtsStatus,
     Doctor,
+    Stats,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatsView {
+    Weekly,
+    Monthly,
 }
 
 /// Snapshot of an in-progress bundle prewarm run, used to drive the
@@ -66,6 +73,7 @@ pub struct App {
     /// restarted inkworm. Only updated through `day_has_rolled_over`.
     last_seen_day: chrono::NaiveDate,
     stats: StatsTracker,
+    stats_view: StatsView,
     pub delete_confirming: Option<String>,
     pub config_wizard: Option<crate::ui::config_wizard::WizardState>,
     pub course_list: Option<crate::ui::course_list::CourseListState>,
@@ -118,6 +126,7 @@ impl App {
             mistakes,
             last_seen_day,
             stats,
+            stats_view: StatsView::Weekly,
             delete_confirming: None,
             config_wizard: None,
             course_list: None,
@@ -548,6 +557,15 @@ impl App {
                     if key.code == KeyCode::Esc {
                         self.doctor_results = None;
                         self.screen = Screen::Study;
+                    }
+                }
+                Screen::Stats => {
+                    if key.code == KeyCode::Esc {
+                        self.screen = Screen::Study;
+                    } else if key.code == KeyCode::Char('m') {
+                        self.stats_view = StatsView::Monthly;
+                    } else if key.code == KeyCode::Char('w') {
+                        self.stats_view = StatsView::Weekly;
                     }
                 }
             },
@@ -1084,6 +1102,7 @@ impl App {
                 }
             }
             "doctor" => self.execute_doctor(),
+            "stats" => self.screen = Screen::Stats,
             _ => {}
         }
     }
@@ -1329,6 +1348,16 @@ impl App {
                 if let Some(ref results) = self.doctor_results {
                     crate::ui::doctor::render_doctor(frame, results);
                 }
+            }
+            Screen::Stats => {
+                let inner = self.render_chrome(frame);
+                crate::ui::stats::render_stats(
+                    frame,
+                    inner,
+                    &self.stats.snapshot(),
+                    self.clock.today_local(),
+                    self.stats_view,
+                );
             }
         }
     }

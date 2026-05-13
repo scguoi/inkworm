@@ -7,6 +7,7 @@ pub mod generate;
 pub mod palette;
 pub mod shell_chrome;
 pub mod skeleton;
+pub mod stats;
 pub mod study;
 pub mod task_msg;
 pub mod terminal;
