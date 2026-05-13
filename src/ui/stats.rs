@@ -61,7 +61,10 @@ fn render_empty(frame: &mut Frame, area: Rect) {
         .style(Style::default().fg(Color::DarkGray))
         .centered();
     let y = area.height / 2;
-    frame.render_widget(msg, Rect::new(area.x, area.y + y, area.width, 1));
+    frame.render_widget(
+        msg,
+        Rect::new(area.x, area.y.saturating_add(y), area.width, 1),
+    );
     let hint = Paragraph::new(Line::from("esc back"))
         .style(Style::default().fg(Color::DarkGray))
         .centered();
@@ -267,7 +270,7 @@ fn bar_for(value: u64, max: u64, width: usize) -> String {
     }
     let filled = ((value as f64 / max as f64) * width as f64).round() as usize;
     let filled = filled.min(width);
-    let mut s = String::with_capacity(width);
+    let mut s = String::with_capacity(width * 3);
     for _ in 0..filled {
         s.push('█');
     }
