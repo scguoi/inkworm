@@ -58,9 +58,10 @@ impl StatsTracker {
                     self.today_stats.active_ms =
                         self.today_stats.active_ms.saturating_add(delta_ms as u64);
                 }
-                // delta > threshold or clock rewind → no accumulation.
+                // delta > threshold → idle gap, no accumulation.
+            } else {
+                // now < prev → clock rewind, no accumulation.
             }
-            // now < prev → clock rewind, no accumulation.
         }
         self.last_activity = Some(now);
     }
@@ -190,6 +191,14 @@ mod tests {
         tr.flush_idle(t((2026, 5, 13), (12, 0, 20))); // < 30s
         tr.on_keystroke(t((2026, 5, 13), (12, 0, 25))); // +25s from 12:00:00
         assert_eq!(tr.today_stats().active_ms, 25_000);
+    }
+
+    #[test]
+    fn keystroke_at_exact_threshold_still_accumulates() {
+        let mut tr = fresh();
+        tr.on_keystroke(t((2026, 5, 13), (12, 0, 0)));
+        tr.on_keystroke(t((2026, 5, 13), (12, 0, 30))); // exactly 30s — inclusive
+        assert_eq!(tr.today_stats().active_ms, 30_000);
     }
 
     #[test]
