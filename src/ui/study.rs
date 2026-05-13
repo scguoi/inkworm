@@ -240,7 +240,7 @@ impl StudyState {
             None => return (None, None),
         };
         let was_correct = judge::equals(&self.input, &drill.english);
-        let words = drill.english.split_whitespace().count() as u32;
+        let words = crate::stats::count_words(&drill.english);
         let drill_ref = DrillRef {
             course_id: course.id.clone(),
             sentence_order: sentence.order,
