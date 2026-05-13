@@ -9,9 +9,11 @@ use tokio_util::sync::CancellationToken;
 
 use crate::clock::Clock;
 use crate::config::Config;
+use crate::stats::StatsTracker;
 use crate::storage::course::Course;
 use crate::storage::mistakes::MistakeBook;
 use crate::storage::progress::Progress;
+use crate::storage::stats::Stats;
 use crate::storage::DataPaths;
 use crate::tts::speaker::Speaker;
 use crate::tts::{should_play_bundle, OutputKind};
@@ -63,6 +65,7 @@ pub struct App {
     /// we re-run the mistakes auto-launch chain, same as if the user had
     /// restarted inkworm. Only updated through `day_has_rolled_over`.
     last_seen_day: chrono::NaiveDate,
+    stats: StatsTracker,
     pub delete_confirming: Option<String>,
     pub config_wizard: Option<crate::ui::config_wizard::WizardState>,
     pub course_list: Option<crate::ui::course_list::CourseListState>,
@@ -95,6 +98,11 @@ impl App {
         bundle_player: Arc<crate::audio::player::BundlePlayer>,
     ) -> Self {
         let last_seen_day = clock.today_local();
+        let stats_loaded = Stats::load(&data_paths.stats_file).unwrap_or_else(|e| {
+            tracing::warn!("Failed to load stats: {e}");
+            Stats::empty()
+        });
+        let stats = StatsTracker::from_stats(stats_loaded, last_seen_day);
         let mut app = Self {
             screen: Screen::Study,
             should_quit: false,
@@ -109,6 +117,7 @@ impl App {
             config,
             mistakes,
             last_seen_day,
+            stats,
             delete_confirming: None,
             config_wizard: None,
             course_list: None,
@@ -469,6 +478,7 @@ impl App {
 
     pub fn on_tick(&mut self) {
         self.blink_counter += 1;
+        self.stats.flush_idle(self.clock.now());
         if self.blink_counter >= 33 {
             self.blink_counter = 0;
             self.cursor_visible = !self.cursor_visible;
@@ -688,6 +698,7 @@ impl App {
     }
 
     fn handle_study_key(&mut self, key: KeyEvent) {
+        self.stats.on_keystroke(self.clock.now());
         // Clear info banner on any key — but only when the banner is
         // user-facing transient state, not an in-flight prewarm progress
         // line. A prewarm banner is informational and the user should not
@@ -747,7 +758,15 @@ impl App {
                         if let Some(o) = outcome {
                             self.handle_submit_outcome(o);
                         }
-                        let _ = tick; // wired up in Task 6
+                        if let Some(t) = tick {
+                            self.stats
+                                .on_submit(self.clock.now(), t.was_correct, t.words);
+                            let snap = self.stats.snapshot();
+                            if let Err(e) = snap.save(&self.data_paths.stats_file) {
+                                tracing::warn!("Failed to save stats: {e}");
+                                self.info_banner = Some(format!("Failed to save stats: {e}"));
+                            }
+                        }
                     }
                 }
                 KeyCode::Tab => {
@@ -1124,6 +1143,10 @@ impl App {
     }
 
     fn quit(&mut self) {
+        let snap = self.stats.snapshot();
+        if let Err(e) = snap.save(&self.data_paths.stats_file) {
+            tracing::warn!("Failed to save stats on quit: {e}");
+        }
         self.speaker.cancel();
         self.bundle_player.cancel();
         let _ = self.study.progress().save(&self.data_paths.progress_file);
