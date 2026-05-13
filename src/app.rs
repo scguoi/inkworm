@@ -461,6 +461,7 @@ impl App {
 
     fn switch_to_course(&mut self, new_id: String) {
         use crate::storage::course::load_course;
+        use crate::storage::progress::course_stats;
         // Best-effort save before switching.
         if let Err(e) = self.study.progress().save(&self.data_paths.progress_file) {
             eprintln!("Failed to save progress before switch: {e}");
@@ -474,6 +475,15 @@ impl App {
             }
         };
         self.study.progress_mut().active_course_id = Some(new_id);
+        // Explicit re-entry into a fully-mastered course = relearn: wipe its
+        // drill counts so the bottom strip and course list reflect a fresh
+        // pass. Guarded to this code path (not StudyState::new) so app
+        // startup or mistakes→course transitions don't surprise-erase a
+        // user's completion record.
+        let stats = course_stats(&course, self.study.progress().course(&course.id));
+        if stats.total_drills > 0 && stats.completed_drills == stats.total_drills {
+            self.study.progress_mut().reset_course_progress(&course.id);
+        }
         if let Err(e) = self.study.progress().save(&self.data_paths.progress_file) {
             eprintln!("Failed to save progress after switch: {e}");
         }

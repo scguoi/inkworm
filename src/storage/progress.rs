@@ -95,6 +95,21 @@ impl Progress {
     pub fn course_mut(&mut self, id: &str) -> &mut CourseProgress {
         self.courses.entry(id.to_string()).or_default()
     }
+
+    /// Clear every drill's `mastered_count` (and `last_correct_at`) for the
+    /// given course so a re-entry shows a fresh pass. No-op if the course
+    /// has no progress recorded.
+    pub fn reset_course_progress(&mut self, course_id: &str) {
+        let Some(cp) = self.courses.get_mut(course_id) else {
+            return;
+        };
+        for sp in cp.sentences.values_mut() {
+            for dp in sp.drills.values_mut() {
+                dp.mastered_count = 0;
+                dp.last_correct_at = None;
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,5 +169,60 @@ mod tests {
         assert!(json.contains(r#""schemaVersion":1"#));
         assert!(json.contains(r#""activeCourseId":"x""#));
         assert!(json.contains(r#""lastStudiedAt":"2026-04-21T00:00:00Z""#));
+    }
+
+    #[test]
+    fn reset_course_progress_clears_every_drill() {
+        let mut p = Progress::empty();
+        let cp = p.course_mut("c1");
+        let now = Utc.with_ymd_and_hms(2026, 4, 21, 0, 0, 0).unwrap();
+        cp.last_studied_at = now;
+        let mut sp = SentenceProgress::default();
+        sp.drills.insert(
+            "1".into(),
+            DrillProgress {
+                mastered_count: 3,
+                last_correct_at: Some(now),
+            },
+        );
+        sp.drills.insert(
+            "2".into(),
+            DrillProgress {
+                mastered_count: 1,
+                last_correct_at: Some(now),
+            },
+        );
+        cp.sentences.insert("1".into(), sp);
+
+        // Unrelated course must stay untouched.
+        let cp2 = p.course_mut("c2");
+        cp2.sentences
+            .insert("1".into(), SentenceProgress::default());
+        cp2.sentences.get_mut("1").unwrap().drills.insert(
+            "1".into(),
+            DrillProgress {
+                mastered_count: 5,
+                last_correct_at: Some(now),
+            },
+        );
+
+        p.reset_course_progress("c1");
+
+        let drills = &p.courses["c1"].sentences["1"].drills;
+        assert_eq!(drills["1"].mastered_count, 0);
+        assert_eq!(drills["1"].last_correct_at, None);
+        assert_eq!(drills["2"].mastered_count, 0);
+        assert_eq!(drills["2"].last_correct_at, None);
+        // last_studied_at is preserved — relearn shouldn't rewrite history.
+        assert_eq!(p.courses["c1"].last_studied_at, now);
+        // Other courses untouched.
+        assert_eq!(p.courses["c2"].sentences["1"].drills["1"].mastered_count, 5);
+    }
+
+    #[test]
+    fn reset_course_progress_is_noop_for_unknown_course() {
+        let mut p = Progress::empty();
+        p.reset_course_progress("ghost");
+        assert!(p.courses.is_empty());
     }
 }
