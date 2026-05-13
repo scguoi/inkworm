@@ -5,6 +5,7 @@ pub mod config;
 pub mod error;
 pub mod judge;
 pub mod llm;
+pub mod stats;
 pub mod storage;
 pub mod tts;
 pub mod ui;
