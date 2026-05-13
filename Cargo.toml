@@ -46,6 +46,16 @@ hound = "3"
 # TTS live (Plan 6c): WS streaming + local audio playback
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 rodio = { version = "0.19", default-features = false, features = ["mp3"] }
+# Bundle audio is decoded directly via symphonia: rodio 0.19's Decoder wraps
+# the source in a ReadSeekSource that hard-codes byte_len() = None, which
+# triggers an unreachable!() panic the moment the isomp4 demuxer asks for the
+# total length. Driving symphonia ourselves lets us hand it a real File and
+# also handle MP3 and AAC-in-MP4 uniformly.
+symphonia = { version = "0.5", default-features = false, features = [
+    "mp3",
+    "aac",
+    "isomp4",
+] }
 cpal = "0.15"
 tui-textarea = { version = "0.7.0", features = ["crossterm"] }
 
