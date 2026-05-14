@@ -111,21 +111,17 @@ use ratatui::{
     Frame,
 };
 
-/// Format a row: "▸ Title     12/40  2026-04-21  ✓2" — the "✓N" badge is
-/// rendered whenever the course has at least one full pass on record, so a
-/// re-entered (mastered_count just reset) course doesn't look identical to
-/// a never-studied one. Over-learned courses additionally dim the row.
+/// Format a row: "▸ Title     12/40  2026-04-21  ✓2" — every row carries a
+/// "✓N" badge (including `✓0` for never-studied courses) so the trailing
+/// columns line up. The N itself encodes how many full passes are on record;
+/// over-learned courses additionally dim the row.
 fn format_row(item: &CourseListItem, active: bool, selected: bool, width: u16) -> Line<'static> {
     let marker = if active { "▸ " } else { "  " };
     let title = item.meta.title.clone();
     let progress_txt = format!("{}/{}", item.completed_drills, item.meta.total_drills);
     let date_txt = item.meta.created_at.format("%Y-%m-%d").to_string();
     let over_learned = item.is_over_learned();
-    let completion_mark = if item.completion_count >= 1 {
-        format!("  ✓{}", item.completion_count)
-    } else {
-        String::new()
-    };
+    let completion_mark = format!("  ✓{}", item.completion_count);
 
     // Over-learned, non-active, non-selected courses dim down. Selected
     // (Yellow) and active (Green) still win for visibility — the bottom
@@ -413,7 +409,10 @@ mod tests {
     }
 
     #[test]
-    fn completion_badge_visible_for_studied_courses() {
+    fn completion_badge_renders_for_every_course_including_zero() {
+        // Every row carries a "✓N" badge so the date column lines up across
+        // studied and never-studied courses. The N itself (0 vs 1+) is what
+        // distinguishes the two states.
         use ratatui::backend::TestBackend;
         use ratatui::Terminal;
         let backend = TestBackend::new(80, 10);
@@ -429,12 +428,9 @@ mod tests {
             rendered.contains("✓2"),
             "expected '✓2' badge for the completed course, got: {rendered:?}"
         );
-        // "fresh" course (completion_count == 0) gets no badge — that's the
-        // signal that distinguishes "never studied" from "studied, relearning".
-        // No "✓0" anywhere.
         assert!(
-            !rendered.contains("✓0"),
-            "fresh course must not render a '✓0' badge, got: {rendered:?}"
+            rendered.contains("✓0"),
+            "expected '✓0' badge for the never-studied course (column alignment), got: {rendered:?}"
         );
     }
 
