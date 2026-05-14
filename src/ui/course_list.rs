@@ -111,15 +111,21 @@ use ratatui::{
     Frame,
 };
 
-/// Format a row: "▸ Title     12/40  2026-04-21  ✓" (trailing ✓ only for
-/// over-learned courses).
+/// Format a row: "▸ Title     12/40  2026-04-21  ✓2" — the "✓N" badge is
+/// rendered whenever the course has at least one full pass on record, so a
+/// re-entered (mastered_count just reset) course doesn't look identical to
+/// a never-studied one. Over-learned courses additionally dim the row.
 fn format_row(item: &CourseListItem, active: bool, selected: bool, width: u16) -> Line<'static> {
     let marker = if active { "▸ " } else { "  " };
     let title = item.meta.title.clone();
     let progress_txt = format!("{}/{}", item.completed_drills, item.meta.total_drills);
     let date_txt = item.meta.created_at.format("%Y-%m-%d").to_string();
     let over_learned = item.is_over_learned();
-    let trailing_mark = if over_learned { "  ✓" } else { "" };
+    let completion_mark = if item.completion_count >= 1 {
+        format!("  ✓{}", item.completion_count)
+    } else {
+        String::new()
+    };
 
     // Over-learned, non-active, non-selected courses dim down. Selected
     // (Yellow) and active (Green) still win for visibility — the bottom
@@ -139,7 +145,7 @@ fn format_row(item: &CourseListItem, active: bool, selected: bool, width: u16) -
     let reserved = (marker.chars().count()
         + progress_txt.chars().count()
         + date_txt.chars().count()
-        + trailing_mark.chars().count()
+        + completion_mark.chars().count()
         + 4) as u16;
     let available = width.saturating_sub(reserved) as usize;
     // NOTE: `chars().count()` counts Unicode code points, not display columns.
@@ -163,7 +169,7 @@ fn format_row(item: &CourseListItem, active: bool, selected: bool, width: u16) -
             Style::default().fg(Color::DarkGray),
         ),
         Span::styled(date_txt, Style::default().fg(Color::DarkGray)),
-        Span::styled(trailing_mark, Style::default().fg(Color::DarkGray)),
+        Span::styled(completion_mark, Style::default().fg(Color::DarkGray)),
     ])
 }
 
@@ -404,6 +410,32 @@ mod tests {
             .collect();
         let state = CourseListState::new(metas, &Progress::empty());
         term.draw(|f| render_course_list(f, &state)).unwrap();
+    }
+
+    #[test]
+    fn completion_badge_visible_for_studied_courses() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let backend = TestBackend::new(80, 10);
+        let mut term = Terminal::new(backend).unwrap();
+        let metas = vec![meta("fresh", (2026, 4, 10)), meta("done2", (2026, 4, 11))];
+        let mut p = Progress::empty();
+        p.course_mut("done2").completion_count = 2;
+        let state = CourseListState::new(metas, &p);
+        term.draw(|f| render_course_list(f, &state)).unwrap();
+        let buffer = term.backend().buffer();
+        let rendered: String = buffer.content().iter().map(|c| c.symbol()).collect();
+        assert!(
+            rendered.contains("✓2"),
+            "expected '✓2' badge for the completed course, got: {rendered:?}"
+        );
+        // "fresh" course (completion_count == 0) gets no badge — that's the
+        // signal that distinguishes "never studied" from "studied, relearning".
+        // No "✓0" anywhere.
+        assert!(
+            !rendered.contains("✓0"),
+            "fresh course must not render a '✓0' badge, got: {rendered:?}"
+        );
     }
 
     #[test]
