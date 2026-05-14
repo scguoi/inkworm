@@ -26,6 +26,10 @@ pub struct CourseListState {
     pub items: Vec<CourseListItem>,
     pub selected: usize,
     pub active_course_id: Option<String>,
+    /// When the user presses Enter on an over-learned course, store its id
+    /// here instead of switching immediately. A second Enter on the same
+    /// id confirms the relearn; any cursor move clears it.
+    pub over_learned_armed: Option<String>,
 }
 
 impl CourseListState {
@@ -63,6 +67,7 @@ impl CourseListState {
             items,
             selected,
             active_course_id: active,
+            over_learned_armed: None,
         }
     }
 
@@ -78,6 +83,7 @@ impl CourseListState {
         if self.items.is_empty() {
             return;
         }
+        self.over_learned_armed = None;
         self.selected = (self.selected + 1) % self.items.len();
     }
 
@@ -85,6 +91,7 @@ impl CourseListState {
         if self.items.is_empty() {
             return;
         }
+        self.over_learned_armed = None;
         self.selected = (self.selected + self.items.len() - 1) % self.items.len();
     }
 
@@ -92,6 +99,7 @@ impl CourseListState {
         if self.items.is_empty() {
             return;
         }
+        self.over_learned_armed = None;
         self.selected = (self.selected + page.max(1)).min(self.items.len() - 1);
     }
 
@@ -99,6 +107,7 @@ impl CourseListState {
         if self.items.is_empty() {
             return;
         }
+        self.over_learned_armed = None;
         self.selected = self.selected.saturating_sub(page.max(1));
     }
 }
@@ -222,6 +231,24 @@ pub fn render_course_list(frame: &mut Frame, state: &CourseListState) {
     let list = List::new(items);
     frame.render_widget(list, Rect::new(x, y + header_height, width, list_rows));
 
+    // Two-step relearn confirmation hint, drawn in the gap row above the
+    // standard "↑↓ · move ..." legend. Only present when the user has armed
+    // an over-learned course with one Enter; any cursor move clears it.
+    if let Some(ref armed_id) = state.over_learned_armed {
+        if let Some(item) = state.items.iter().find(|i| &i.meta.id == armed_id) {
+            let msg = format!(
+                "✓{} already mastered — press Enter again to relearn",
+                item.completion_count
+            );
+            let para = Paragraph::new(Span::styled(msg, Style::default().fg(Color::Yellow)))
+                .alignment(ratatui::layout::Alignment::Center);
+            frame.render_widget(
+                para,
+                Rect::new(x, y + header_height + list_rows, width, 1),
+            );
+        }
+    }
+
     let hint = "↑↓ · move    Enter · switch    Esc · close";
     let hint_para = Paragraph::new(Span::styled(hint, Style::default().fg(Color::DarkGray)));
     frame.render_widget(
@@ -315,6 +342,27 @@ mod tests {
         state.selected = 1;
         state.page_up(100);
         assert_eq!(state.selected, 0);
+    }
+
+    #[test]
+    fn cursor_movement_clears_over_learned_armed() {
+        // Any cursor change must cancel a pending relearn confirmation — the
+        // user is no longer pointing at the course they armed.
+        let metas = vec![meta("a", (2026, 4, 10)), meta("b", (2026, 4, 20))];
+        let mut state = CourseListState::new(metas, &Progress::empty());
+        for mover in [
+            |s: &mut CourseListState| s.select_next(),
+            |s: &mut CourseListState| s.select_prev(),
+            |s: &mut CourseListState| s.page_down(1),
+            |s: &mut CourseListState| s.page_up(1),
+        ] {
+            state.over_learned_armed = Some("a".into());
+            mover(&mut state);
+            assert!(
+                state.over_learned_armed.is_none(),
+                "cursor movement must clear armed state"
+            );
+        }
     }
 
     #[test]

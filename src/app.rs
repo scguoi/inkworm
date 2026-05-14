@@ -1554,13 +1554,27 @@ impl App {
                 }
             }
             KeyCode::Enter => {
-                let chosen_id = self
-                    .course_list
-                    .as_ref()
-                    .and_then(|s| s.selected_item())
-                    .map(|i| i.meta.id.clone());
-                if let Some(id) = chosen_id {
-                    self.switch_to_course(id);
+                let Some(list) = self.course_list.as_ref() else {
+                    return;
+                };
+                let Some(item) = list.selected_item() else {
+                    return;
+                };
+                let chosen_id = item.meta.id.clone();
+                let is_over_learned = item.is_over_learned();
+                let already_armed =
+                    list.over_learned_armed.as_deref() == Some(chosen_id.as_str());
+                if is_over_learned && !already_armed {
+                    // First Enter on an over-learned course: arm, show the
+                    // confirm hint, do NOT trigger the relearn-reset yet.
+                    if let Some(list) = self.course_list.as_mut() {
+                        list.over_learned_armed = Some(chosen_id);
+                    }
+                } else {
+                    if let Some(list) = self.course_list.as_mut() {
+                        list.over_learned_armed = None;
+                    }
+                    self.switch_to_course(chosen_id);
                 }
             }
             _ => {}
