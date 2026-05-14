@@ -1,15 +1,24 @@
 # inkworm — project conventions
 
-## Release workflow
+## Local install after any user-facing change
 
-After creating a new GitHub release (e.g. `gh release create vX.Y.Z …`),
-immediately install the release locally so the user's `~/.cargo/bin/inkworm`
-reflects the just-shipped version:
+Any code change the user needs to **try out in the running TUI** must be
+installed to `~/.cargo/bin/inkworm` before handing control back. The user
+will not run this step themselves — do it without being asked, every time:
 
 ```
 cargo install --path . --force
 ```
 
-Then verify with `inkworm --version` and include the output in the release
-summary back to the user. The user will not do this step — do it without
-being asked.
+This applies to:
+- new GitHub releases (`gh release create vX.Y.Z …`)
+- in-progress feature work the user wants to manually verify (typing flow,
+  banners, course list, palette, anything visible/interactive)
+- bug fixes whose validation requires running the binary
+
+Skip only for changes that are fully covered by `cargo test` and have no
+runtime behavior the user would observe (pure refactors, doc-only edits,
+test-only edits). When in doubt, install.
+
+After installing, verify with `inkworm --version` and report it back in the
+summary so the user knows the local binary reflects the latest code.
