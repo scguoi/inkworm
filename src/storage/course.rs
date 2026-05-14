@@ -32,10 +32,11 @@ pub struct Source {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "kebab-case")]
 pub enum SourceKind {
     Article,
     Manual,
+    AnkiDeck,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -496,6 +497,46 @@ mod tests {
     }
 
     #[test]
+    fn source_kind_serde_uses_kebab_case() {
+        // Round-trip every variant via the on-disk JSON shape.
+        let cases = [
+            (SourceKind::Article, "\"article\""),
+            (SourceKind::Manual, "\"manual\""),
+            (SourceKind::AnkiDeck, "\"anki-deck\""),
+        ];
+        for (kind, json) in cases {
+            assert_eq!(serde_json::to_string(&kind).unwrap(), json);
+            assert_eq!(serde_json::from_str::<SourceKind>(json).unwrap(), kind);
+        }
+    }
+
+    #[test]
+    fn list_courses_skips_unknown_source_kind_but_keeps_siblings() {
+        // Regression: pre-fix, a file with an unknown source.type silently
+        // disappeared from the list and from the log. Now the file with a
+        // legitimate kind ("anki-deck") must load alongside its siblings.
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+
+        let mut good = sample_course();
+        good.id = "2026-05-06-good".into();
+        save_course(dir.path(), &good).unwrap();
+
+        let mut anki = sample_course();
+        anki.id = "2026-05-13-from-anki".into();
+        anki.source.kind = SourceKind::AnkiDeck;
+        save_course(dir.path(), &anki).unwrap();
+
+        let ids: Vec<_> = list_courses(dir.path())
+            .unwrap()
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        assert!(ids.contains(&"2026-05-06-good".into()));
+        assert!(ids.contains(&"2026-05-13-from-anki".into()));
+    }
+
+    #[test]
     fn list_courses_scans_yyyy_mm_subdirs_and_skips_others() {
         use tempfile::tempdir;
         let dir = tempdir().unwrap();
@@ -670,8 +711,12 @@ pub fn list_courses(courses_dir: &std::path::Path) -> Result<Vec<CourseMeta>, St
             let Ok(bytes) = std::fs::read(&sub_path) else {
                 continue;
             };
-            let Ok(course) = serde_json::from_slice::<Course>(&bytes) else {
-                continue;
+            let course = match serde_json::from_slice::<Course>(&bytes) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!("list_courses: skipping {sub_path:?} (deserialize failed: {e})");
+                    continue;
+                }
             };
             // Defensive: id field must match its on-disk location.
             // Mismatches indicate a manually-placed file; skip with a log.
