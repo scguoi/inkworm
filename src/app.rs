@@ -533,6 +533,11 @@ impl App {
             self.tick_advance();
             self.tick_complete_auto_switch();
         }
+        if matches!(self.screen, Screen::CourseList) {
+            if let Some(list) = self.course_list.as_mut() {
+                list.disarm_if_expired(self.clock.now());
+            }
+        }
     }
 
     fn tick_complete_auto_switch(&mut self) {
@@ -1567,12 +1572,13 @@ impl App {
                 if is_over_learned && !already_armed {
                     // First Enter on an over-learned course: arm, show the
                     // confirm hint, do NOT trigger the relearn-reset yet.
+                    let now = self.clock.now();
                     if let Some(list) = self.course_list.as_mut() {
-                        list.over_learned_armed = Some(chosen_id);
+                        list.arm_over_learned(chosen_id, now);
                     }
                 } else {
                     if let Some(list) = self.course_list.as_mut() {
-                        list.over_learned_armed = None;
+                        list.disarm();
                     }
                     self.switch_to_course(chosen_id);
                 }

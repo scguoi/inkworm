@@ -2,11 +2,18 @@
 
 use crate::storage::course::CourseMeta;
 use crate::storage::progress::Progress;
+use chrono::{DateTime, Utc};
 
 /// At or above this many cumulative completions the course is treated as
 /// "over-learned": it sinks to the bottom of the list, picks up a "✓"
 /// marker, and renders in a muted color to suggest spending time elsewhere.
 pub const OVER_LEARNED_THRESHOLD: u32 = 4;
+
+/// How long an armed (one-Enter) over-learned relearn confirmation lives
+/// before auto-clearing. Short enough that a distracted user doesn't come
+/// back hours later and hit Enter on a stale prompt; long enough to actually
+/// read the hint and decide.
+pub const OVER_LEARNED_ARM_TTL_MS: i64 = 5_000;
 
 #[derive(Debug)]
 pub struct CourseListItem {
@@ -28,8 +35,12 @@ pub struct CourseListState {
     pub active_course_id: Option<String>,
     /// When the user presses Enter on an over-learned course, store its id
     /// here instead of switching immediately. A second Enter on the same
-    /// id confirms the relearn; any cursor move clears it.
+    /// id confirms the relearn; any cursor move clears it; the on-tick
+    /// expiry check clears it after [`OVER_LEARNED_ARM_TTL_MS`].
     pub over_learned_armed: Option<String>,
+    /// Timestamp paired with `over_learned_armed`. Read by
+    /// [`Self::disarm_if_expired`] to time out stale prompts.
+    pub over_learned_armed_at: Option<DateTime<Utc>>,
 }
 
 impl CourseListState {
@@ -68,6 +79,7 @@ impl CourseListState {
             selected,
             active_course_id: active,
             over_learned_armed: None,
+            over_learned_armed_at: None,
         }
     }
 
@@ -79,11 +91,36 @@ impl CourseListState {
         self.items.get(self.selected)
     }
 
+    /// Record the first Enter on an over-learned course. A second Enter on
+    /// the same id (before the TTL expires or the cursor moves) confirms
+    /// the relearn.
+    pub fn arm_over_learned(&mut self, course_id: String, now: DateTime<Utc>) {
+        self.over_learned_armed = Some(course_id);
+        self.over_learned_armed_at = Some(now);
+    }
+
+    pub fn disarm(&mut self) {
+        self.over_learned_armed = None;
+        self.over_learned_armed_at = None;
+    }
+
+    /// Clear the armed state once it has been pending for
+    /// [`OVER_LEARNED_ARM_TTL_MS`]. Called from the app tick so a stale prompt
+    /// can't outlive the user's attention.
+    pub fn disarm_if_expired(&mut self, now: DateTime<Utc>) {
+        if let Some(armed_at) = self.over_learned_armed_at {
+            if now.signed_duration_since(armed_at).num_milliseconds() >= OVER_LEARNED_ARM_TTL_MS
+            {
+                self.disarm();
+            }
+        }
+    }
+
     pub fn select_next(&mut self) {
         if self.items.is_empty() {
             return;
         }
-        self.over_learned_armed = None;
+        self.disarm();
         self.selected = (self.selected + 1) % self.items.len();
     }
 
@@ -91,7 +128,7 @@ impl CourseListState {
         if self.items.is_empty() {
             return;
         }
-        self.over_learned_armed = None;
+        self.disarm();
         self.selected = (self.selected + self.items.len() - 1) % self.items.len();
     }
 
@@ -99,7 +136,7 @@ impl CourseListState {
         if self.items.is_empty() {
             return;
         }
-        self.over_learned_armed = None;
+        self.disarm();
         self.selected = (self.selected + page.max(1)).min(self.items.len() - 1);
     }
 
@@ -107,7 +144,7 @@ impl CourseListState {
         if self.items.is_empty() {
             return;
         }
-        self.over_learned_armed = None;
+        self.disarm();
         self.selected = self.selected.saturating_sub(page.max(1));
     }
 }
@@ -350,19 +387,46 @@ mod tests {
         // user is no longer pointing at the course they armed.
         let metas = vec![meta("a", (2026, 4, 10)), meta("b", (2026, 4, 20))];
         let mut state = CourseListState::new(metas, &Progress::empty());
+        let now = Utc.with_ymd_and_hms(2026, 5, 14, 12, 0, 0).unwrap();
         for mover in [
             |s: &mut CourseListState| s.select_next(),
             |s: &mut CourseListState| s.select_prev(),
             |s: &mut CourseListState| s.page_down(1),
             |s: &mut CourseListState| s.page_up(1),
         ] {
-            state.over_learned_armed = Some("a".into());
+            state.arm_over_learned("a".into(), now);
             mover(&mut state);
             assert!(
-                state.over_learned_armed.is_none(),
-                "cursor movement must clear armed state"
+                state.over_learned_armed.is_none() && state.over_learned_armed_at.is_none(),
+                "cursor movement must clear both armed id and timestamp"
             );
         }
+    }
+
+    #[test]
+    fn disarm_if_expired_clears_after_ttl() {
+        let metas = vec![meta("a", (2026, 4, 10))];
+        let mut state = CourseListState::new(metas, &Progress::empty());
+        let t0 = Utc.with_ymd_and_hms(2026, 5, 14, 12, 0, 0).unwrap();
+        state.arm_over_learned("a".into(), t0);
+
+        // Before TTL: still armed.
+        state.disarm_if_expired(t0 + chrono::Duration::milliseconds(OVER_LEARNED_ARM_TTL_MS - 1));
+        assert_eq!(state.over_learned_armed.as_deref(), Some("a"));
+
+        // At TTL: cleared.
+        state.disarm_if_expired(t0 + chrono::Duration::milliseconds(OVER_LEARNED_ARM_TTL_MS));
+        assert!(state.over_learned_armed.is_none());
+        assert!(state.over_learned_armed_at.is_none());
+    }
+
+    #[test]
+    fn disarm_if_expired_noop_when_not_armed() {
+        let metas = vec![meta("a", (2026, 4, 10))];
+        let mut state = CourseListState::new(metas, &Progress::empty());
+        let now = Utc.with_ymd_and_hms(2026, 5, 14, 12, 0, 0).unwrap();
+        state.disarm_if_expired(now);
+        assert!(state.over_learned_armed.is_none());
     }
 
     #[test]
