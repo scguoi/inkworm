@@ -154,11 +154,33 @@ impl App {
             complete_auto_switch_cancelled: false,
         };
         app.startup_apply_mistakes_session();
+        app.maybe_open_course_list_at_startup();
         app.spawn_bundle_prewarm();
         if boot_warning.is_some() && app.info_banner.is_none() {
             app.info_banner = boot_warning;
         }
         app
+    }
+
+    /// If the active course is fully mastered, open the picker instead of
+    /// landing the user on a course whose first keystroke triggers a silent
+    /// relearn-reset. Skipped when a mistakes session is up — that flow
+    /// wins, since the user explicitly has review work pending.
+    fn maybe_open_course_list_at_startup(&mut self) {
+        if !matches!(self.study.mode(), StudyMode::Course) {
+            return;
+        }
+        use crate::storage::progress::course_stats;
+        let needs_picker = match self.study.current_course() {
+            Some(course) => {
+                let stats = course_stats(course, self.study.progress().course(&course.id));
+                stats.total_drills > 0 && stats.completed_drills == stats.total_drills
+            }
+            None => false,
+        };
+        if needs_picker {
+            self.open_course_list();
+        }
     }
 
     fn startup_apply_mistakes_session(&mut self) {
@@ -2157,5 +2179,110 @@ mod complete_auto_switch_tests {
         clock.advance(Duration::seconds(10));
         app.on_tick();
         assert!(matches!(app.screen, Screen::Study));
+    }
+}
+
+#[cfg(test)]
+mod startup_picker_tests {
+    use super::*;
+    use crate::clock::SystemClock;
+    use crate::config::Config;
+    use crate::storage::course::Course;
+    use crate::storage::mistakes::MistakeBook;
+    use crate::storage::paths::DataPaths;
+    use crate::storage::progress::Progress;
+    use crate::tts::speaker::{Speaker, TtsError};
+    use std::sync::Arc;
+
+    struct NoopSpeaker;
+    #[async_trait::async_trait]
+    impl Speaker for NoopSpeaker {
+        async fn speak(&self, _text: &str) -> Result<(), TtsError> {
+            Ok(())
+        }
+        fn cancel(&self) {}
+    }
+
+    fn minimal_course() -> Course {
+        let json = include_str!("../fixtures/courses/good/minimal.json");
+        serde_json::from_str(json).unwrap()
+    }
+
+    fn fully_mastered_progress(course: &Course) -> Progress {
+        let mut p = Progress::empty();
+        p.active_course_id = Some(course.id.clone());
+        let cp = p.course_mut(&course.id);
+        cp.last_studied_at = chrono::Utc::now();
+        for sentence in &course.sentences {
+            let sp = cp.sentences.entry(sentence.order.to_string()).or_default();
+            for drill in &sentence.drills {
+                let dp = sp.drills.entry(drill.stage.to_string()).or_default();
+                dp.mastered_count = 1;
+            }
+        }
+        p
+    }
+
+    fn build_app(course: Option<Course>, progress: Progress) -> App {
+        let (task_tx, _rx) = tokio::sync::mpsc::channel(8);
+        let tmp = tempfile::tempdir().expect("tempdir").keep();
+        let data_paths = DataPaths::for_tests(tmp);
+        let bundle_player = Arc::new(crate::audio::player::BundlePlayer::new(None));
+        App::new(
+            course,
+            progress,
+            data_paths,
+            Arc::new(SystemClock),
+            Config::default(),
+            MistakeBook::default(),
+            None,
+            task_tx,
+            Arc::new(NoopSpeaker) as Arc<dyn Speaker>,
+            bundle_player,
+        )
+    }
+
+    #[test]
+    fn fully_mastered_active_course_opens_picker_at_startup() {
+        let course = minimal_course();
+        let progress = fully_mastered_progress(&course);
+        let app = build_app(Some(course), progress);
+        assert!(
+            matches!(app.screen, Screen::CourseList),
+            "fully mastered active course should land on /list, not Study"
+        );
+        assert!(app.course_list.is_some());
+    }
+
+    #[test]
+    fn partial_progress_lands_on_study_at_startup() {
+        let course = minimal_course();
+        let mut progress = Progress::empty();
+        progress.active_course_id = Some(course.id.clone());
+        // Master a single drill — far from full completion.
+        let cp = progress.course_mut(&course.id);
+        cp.last_studied_at = chrono::Utc::now();
+        let sp = cp
+            .sentences
+            .entry(course.sentences[0].order.to_string())
+            .or_default();
+        sp.drills
+            .entry(course.sentences[0].drills[0].stage.to_string())
+            .or_default()
+            .mastered_count = 1;
+        let app = build_app(Some(course), progress);
+        assert!(
+            matches!(app.screen, Screen::Study),
+            "partial progress should resume in Study, not /list"
+        );
+    }
+
+    #[test]
+    fn no_course_lands_on_study_at_startup() {
+        let app = build_app(None, Progress::empty());
+        assert!(
+            matches!(app.screen, Screen::Study),
+            "no active course → stay on Study (renders empty state); picker auto-open guards on a loaded course"
+        );
     }
 }
