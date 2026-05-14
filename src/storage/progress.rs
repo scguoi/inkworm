@@ -84,7 +84,23 @@ impl Progress {
         if p.schema_version == 0 {
             p.schema_version = PROGRESS_SCHEMA_VERSION;
         }
+        p.backfill_completion_counts();
         Ok(p)
+    }
+
+    /// `completion_count` only started being tracked in v0.2.16. For users
+    /// upgrading from earlier versions, courses they already finished have
+    /// no counter on disk — they'd look identical to never-studied courses
+    /// in `/list`. Best-effort fix: any course with recorded study activity
+    /// (`last_studied_at` past the epoch default) but a zero counter gets
+    /// credited with one prior pass. Re-saves persist the patched value.
+    fn backfill_completion_counts(&mut self) {
+        let epoch = DateTime::<Utc>::default();
+        for cp in self.courses.values_mut() {
+            if cp.completion_count == 0 && cp.last_studied_at > epoch {
+                cp.completion_count = 1;
+            }
+        }
     }
 
     pub fn save(&self, path: &Path) -> Result<(), StorageError> {
@@ -233,5 +249,56 @@ mod tests {
         let mut p = Progress::empty();
         p.reset_course_progress("ghost");
         assert!(p.courses.is_empty());
+    }
+
+    #[test]
+    fn backfill_credits_studied_courses_missing_completion_count() {
+        // Mimic a progress.json written before v0.2.16 (no completionCount
+        // on disk → deserializes to 0 via #[serde(default)]).
+        let json = r#"{
+            "schemaVersion": 1,
+            "activeCourseId": "studied",
+            "courses": {
+                "studied": {
+                    "lastStudiedAt": "2026-05-01T10:00:00Z",
+                    "sentences": {
+                        "1": {
+                            "drills": {
+                                "1": {"masteredCount": 1, "lastCorrectAt": "2026-05-01T10:00:00Z"}
+                            }
+                        }
+                    }
+                },
+                "never": {
+                    "lastStudiedAt": "1970-01-01T00:00:00Z",
+                    "sentences": {}
+                }
+            }
+        }"#;
+        let mut p: Progress = serde_json::from_str(json).unwrap();
+        assert_eq!(p.courses["studied"].completion_count, 0);
+        p.backfill_completion_counts();
+        assert_eq!(
+            p.courses["studied"].completion_count, 1,
+            "legacy studied course must be credited with one pass"
+        );
+        assert_eq!(
+            p.courses["never"].completion_count, 0,
+            "never-studied courses stay at zero"
+        );
+    }
+
+    #[test]
+    fn backfill_does_not_overwrite_existing_completion_count() {
+        let mut p = Progress::empty();
+        let now = Utc.with_ymd_and_hms(2026, 5, 1, 0, 0, 0).unwrap();
+        let cp = p.course_mut("c");
+        cp.last_studied_at = now;
+        cp.completion_count = 3;
+        p.backfill_completion_counts();
+        assert_eq!(
+            p.courses["c"].completion_count, 3,
+            "post-v0.2.16 data must not be clobbered by the backfill"
+        );
     }
 }
