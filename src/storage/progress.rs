@@ -37,6 +37,11 @@ pub struct CourseProgress {
     /// Keyed by sentence `order` as a decimal string.
     #[serde(default)]
     pub sentences: BTreeMap<String, SentenceProgress>,
+    /// How many times the user has reached the end of this course. Bumped
+    /// once per course-mode pass through `next_drill`'s final step.
+    /// Survives the relearn reset done in `reset_course_progress`.
+    #[serde(rename = "completionCount", default)]
+    pub completion_count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -177,6 +182,7 @@ mod tests {
         let cp = p.course_mut("c1");
         let now = Utc.with_ymd_and_hms(2026, 4, 21, 0, 0, 0).unwrap();
         cp.last_studied_at = now;
+        cp.completion_count = 2;
         let mut sp = SentenceProgress::default();
         sp.drills.insert(
             "1".into(),
@@ -215,6 +221,9 @@ mod tests {
         assert_eq!(drills["2"].last_correct_at, None);
         // last_studied_at is preserved — relearn shouldn't rewrite history.
         assert_eq!(p.courses["c1"].last_studied_at, now);
+        // completion_count is preserved — the cumulative-pass counter survives
+        // the relearn reset (it's the very signal "over-learned" depends on).
+        assert_eq!(p.courses["c1"].completion_count, 2);
         // Other courses untouched.
         assert_eq!(p.courses["c2"].sentences["1"].drills["1"].mastered_count, 5);
     }

@@ -345,18 +345,31 @@ impl StudyState {
     }
 
     fn next_drill(&mut self) {
-        let course = match &self.course {
-            Some(c) => c,
+        let (sentence_count, sentence_drills_count, course_id) = match &self.course {
+            Some(c) => (
+                c.sentences.len(),
+                c.sentences[self.sentence_idx].drills.len(),
+                c.id.clone(),
+            ),
             None => return,
         };
-        let sentence = &course.sentences[self.sentence_idx];
-        if self.drill_idx + 1 < sentence.drills.len() {
+        let reached_end = if self.drill_idx + 1 < sentence_drills_count {
             self.drill_idx += 1;
-        } else if self.sentence_idx + 1 < course.sentences.len() {
+            false
+        } else if self.sentence_idx + 1 < sentence_count {
             self.sentence_idx += 1;
             self.drill_idx = 0;
+            false
         } else {
             self.phase = StudyPhase::Complete;
+            true
+        };
+        // Course-mode pass-through to the end: tally one cumulative
+        // completion. Mistakes mode never lands here (the mistakes queue
+        // drives its own advance), but the guard keeps that intent local.
+        if reached_end && self.mode == StudyMode::Course {
+            let cp = self.progress.course_mut(&course_id);
+            cp.completion_count = cp.completion_count.saturating_add(1);
         }
         self.input.clear();
         self.feedback = FeedbackState::Typing;
@@ -712,6 +725,7 @@ mod tests {
         let clk = clock();
         let course = fixture_course();
         let total_drills: usize = course.sentences.iter().map(|s| s.drills.len()).sum();
+        let course_id = course.id.clone();
         let mut state = StudyState::new(Some(course), Progress::empty());
         for _ in 0..total_drills {
             let english = state.current_drill().unwrap().english.clone();
@@ -723,6 +737,37 @@ mod tests {
             state.advance();
         }
         assert_eq!(*state.phase(), StudyPhase::Complete);
+        // Cumulative pass counter bumps exactly once per end-of-course.
+        assert_eq!(
+            state.progress().courses[&course_id].completion_count,
+            1,
+            "one full pass should bump completion_count to 1"
+        );
+    }
+
+    #[test]
+    fn mistakes_mode_completion_does_not_bump_completion_count() {
+        // Mistakes mode never lands in `next_drill`'s end-of-course branch
+        // in real flow (the mistakes queue advances itself), but if it
+        // somehow does, the guard must prevent inflating the relearn tally.
+        let course = fixture_course();
+        let course_id = course.id.clone();
+        let mut state = StudyState::new(Some(course.clone()), Progress::empty());
+        state.set_mode(StudyMode::Mistakes);
+        // Jump to the last drill, then skip past the end.
+        let last_si = course.sentences.len() - 1;
+        let last_di = course.sentences[last_si].drills.len() - 1;
+        state.set_current_drill(last_si, last_di);
+        state.skip();
+        assert_eq!(*state.phase(), StudyPhase::Complete);
+        assert_eq!(
+            state
+                .progress()
+                .course(&course_id)
+                .map_or(0, |cp| cp.completion_count),
+            0,
+            "mistakes mode must not inflate completion_count"
+        );
     }
 
     #[test]

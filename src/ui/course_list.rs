@@ -3,10 +3,22 @@
 use crate::storage::course::CourseMeta;
 use crate::storage::progress::Progress;
 
+/// At or above this many cumulative completions the course is treated as
+/// "over-learned": it sinks to the bottom of the list, picks up a "✓"
+/// marker, and renders in a muted color to suggest spending time elsewhere.
+pub const OVER_LEARNED_THRESHOLD: u32 = 4;
+
 #[derive(Debug)]
 pub struct CourseListItem {
     pub meta: CourseMeta,
     pub completed_drills: usize,
+    pub completion_count: u32,
+}
+
+impl CourseListItem {
+    pub fn is_over_learned(&self) -> bool {
+        self.completion_count >= OVER_LEARNED_THRESHOLD
+    }
 }
 
 #[derive(Debug)]
@@ -19,15 +31,11 @@ pub struct CourseListState {
 impl CourseListState {
     pub fn new(metas: Vec<CourseMeta>, progress: &Progress) -> Self {
         let active = progress.active_course_id.clone();
-        let selected = match &active {
-            Some(id) => metas.iter().position(|m| &m.id == id).unwrap_or(0),
-            None => 0,
-        };
-        let items = metas
+        let mut items: Vec<CourseListItem> = metas
             .into_iter()
             .map(|meta| {
-                let completed = progress
-                    .course(&meta.id)
+                let cp = progress.course(&meta.id);
+                let completed = cp
                     .map(|cp| {
                         cp.sentences
                             .values()
@@ -36,12 +44,21 @@ impl CourseListState {
                             .count()
                     })
                     .unwrap_or(0);
+                let completion_count = cp.map_or(0, |cp| cp.completion_count);
                 CourseListItem {
                     meta,
                     completed_drills: completed,
+                    completion_count,
                 }
             })
             .collect();
+        // Stable sort sinks over-learned items to the bottom while preserving
+        // the input order within each group.
+        items.sort_by_key(|item| item.is_over_learned());
+        let selected = match &active {
+            Some(id) => items.iter().position(|m| &m.meta.id == id).unwrap_or(0),
+            None => 0,
+        };
         Self {
             items,
             selected,
@@ -94,26 +111,36 @@ use ratatui::{
     Frame,
 };
 
-/// Format a row: "▸ Title     12/40  2026-04-21".
+/// Format a row: "▸ Title     12/40  2026-04-21  ✓" (trailing ✓ only for
+/// over-learned courses).
 fn format_row(item: &CourseListItem, active: bool, selected: bool, width: u16) -> Line<'static> {
     let marker = if active { "▸ " } else { "  " };
     let title = item.meta.title.clone();
     let progress_txt = format!("{}/{}", item.completed_drills, item.meta.total_drills);
     let date_txt = item.meta.created_at.format("%Y-%m-%d").to_string();
+    let over_learned = item.is_over_learned();
+    let trailing_mark = if over_learned { "  ✓" } else { "" };
 
+    // Over-learned, non-active, non-selected courses dim down. Selected
+    // (Yellow) and active (Green) still win for visibility — the bottom
+    // position + trailing ✓ remain as the over-learned signal.
     let base_style = if selected {
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD)
     } else if active {
         Style::default().fg(Color::Green)
+    } else if over_learned {
+        Style::default().fg(Color::DarkGray)
     } else {
         Style::default().fg(Color::White)
     };
 
-    let reserved =
-        (marker.chars().count() + progress_txt.chars().count() + date_txt.chars().count() + 4)
-            as u16;
+    let reserved = (marker.chars().count()
+        + progress_txt.chars().count()
+        + date_txt.chars().count()
+        + trailing_mark.chars().count()
+        + 4) as u16;
     let available = width.saturating_sub(reserved) as usize;
     // NOTE: `chars().count()` counts Unicode code points, not display columns.
     // CJK titles render wider than budgeted; follow-up in Plan 6+.
@@ -136,6 +163,7 @@ fn format_row(item: &CourseListItem, active: bool, selected: bool, width: u16) -
             Style::default().fg(Color::DarkGray),
         ),
         Span::styled(date_txt, Style::default().fg(Color::DarkGray)),
+        Span::styled(trailing_mark, Style::default().fg(Color::DarkGray)),
     ])
 }
 
@@ -318,6 +346,51 @@ mod tests {
 
         let state = CourseListState::new(metas, &p);
         assert_eq!(state.items[0].completed_drills, 2);
+    }
+
+    #[test]
+    fn over_learned_courses_sink_to_bottom_preserving_order() {
+        let metas = vec![
+            meta("over1", (2026, 4, 10)),
+            meta("fresh", (2026, 4, 11)),
+            meta("over2", (2026, 4, 12)),
+        ];
+        let mut p = Progress::empty();
+        p.course_mut("over1").completion_count = OVER_LEARNED_THRESHOLD;
+        p.course_mut("over2").completion_count = OVER_LEARNED_THRESHOLD + 2;
+
+        let state = CourseListState::new(metas, &p);
+        let order: Vec<&str> = state.items.iter().map(|i| i.meta.id.as_str()).collect();
+        // "fresh" first (not over-learned), then over1/over2 in original order.
+        assert_eq!(order, vec!["fresh", "over1", "over2"]);
+        assert!(!state.items[0].is_over_learned());
+        assert!(state.items[1].is_over_learned());
+        assert!(state.items[2].is_over_learned());
+    }
+
+    #[test]
+    fn selected_tracks_active_after_over_learned_sort() {
+        // Active course should still resolve to its post-sort index, not its
+        // original input index.
+        let metas = vec![meta("a", (2026, 4, 10)), meta("b", (2026, 4, 11))];
+        let mut p = Progress::empty();
+        p.active_course_id = Some("a".into());
+        // "a" is over-learned → sinks to the bottom.
+        p.course_mut("a").completion_count = OVER_LEARNED_THRESHOLD;
+
+        let state = CourseListState::new(metas, &p);
+        assert_eq!(state.items[0].meta.id, "b");
+        assert_eq!(state.items[1].meta.id, "a");
+        assert_eq!(state.selected, 1, "selected must follow the active course");
+    }
+
+    #[test]
+    fn under_threshold_completion_count_is_not_over_learned() {
+        let metas = vec![meta("a", (2026, 4, 10))];
+        let mut p = Progress::empty();
+        p.course_mut("a").completion_count = OVER_LEARNED_THRESHOLD - 1;
+        let state = CourseListState::new(metas, &p);
+        assert!(!state.items[0].is_over_learned());
     }
 
     #[test]
