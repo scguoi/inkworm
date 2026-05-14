@@ -18,6 +18,12 @@ use ratatui::{
 /// typing flow unbroken.
 pub const AUTO_ADVANCE_DELAY_MS: i64 = 500;
 
+/// Milliseconds to linger on the "Course complete!" banner before
+/// auto-switching to the course list. Any keypress cancels this for the
+/// rest of the Complete phase, so the user can read the hint or run a
+/// command without being yanked away.
+pub const COMPLETE_AUTO_SWITCH_DELAY_MS: i64 = 1000;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FeedbackState {
     Typing,

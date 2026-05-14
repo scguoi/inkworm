@@ -89,6 +89,14 @@ pub struct App {
     pub shell_header: crate::ui::shell_chrome::ShellHeader,
     prewarm_generation: Arc<AtomicU64>,
     prewarm_state: Option<PrewarmState>,
+    /// When the user finishes a course (Study mode), we auto-switch to the
+    /// course list after a brief pause so they can pick a new course without
+    /// memorizing a slash command. `started_at` is set on the first `on_tick`
+    /// that observes the Complete phase; `cancelled` latches if the user
+    /// touches any key before the delay elapses, so the courtesy pause never
+    /// fights an explicit intent.
+    complete_auto_switch_started_at: Option<chrono::DateTime<chrono::Utc>>,
+    complete_auto_switch_cancelled: bool,
 }
 
 impl App {
@@ -142,6 +150,8 @@ impl App {
             shell_header: crate::ui::shell_chrome::ShellHeader::detect(),
             prewarm_generation: Arc::new(AtomicU64::new(0)),
             prewarm_state: None,
+            complete_auto_switch_started_at: None,
+            complete_auto_switch_cancelled: false,
         };
         app.startup_apply_mistakes_session();
         app.spawn_bundle_prewarm();
@@ -521,6 +531,27 @@ impl App {
         // Auto-advance after a correct answer (0.5s linger).
         if matches!(self.screen, Screen::Study) {
             self.tick_advance();
+            self.tick_complete_auto_switch();
+        }
+    }
+
+    fn tick_complete_auto_switch(&mut self) {
+        use crate::ui::study::{StudyPhase, COMPLETE_AUTO_SWITCH_DELAY_MS};
+        let in_course_complete = matches!(self.study.phase(), StudyPhase::Complete)
+            && matches!(self.study.mode(), StudyMode::Course);
+        if !in_course_complete {
+            self.complete_auto_switch_started_at = None;
+            self.complete_auto_switch_cancelled = false;
+            return;
+        }
+        if self.complete_auto_switch_cancelled {
+            return;
+        }
+        let now = self.clock.now();
+        let start = *self.complete_auto_switch_started_at.get_or_insert(now);
+        if now.signed_duration_since(start).num_milliseconds() >= COMPLETE_AUTO_SWITCH_DELAY_MS {
+            self.complete_auto_switch_started_at = None;
+            self.open_course_list();
         }
     }
 
@@ -727,6 +758,14 @@ impl App {
 
     fn handle_study_key(&mut self, key: KeyEvent) {
         self.stats.on_keystroke(self.clock.now());
+        // Any key during the Complete pause cancels the courtesy auto-switch
+        // for the rest of this Complete phase. Keep going — the key itself
+        // should still do whatever it normally would (e.g. Ctrl+P to open
+        // the palette).
+        if matches!(self.study.phase(), crate::ui::study::StudyPhase::Complete) {
+            self.complete_auto_switch_started_at = None;
+            self.complete_auto_switch_cancelled = true;
+        }
         // Clear info banner on any key — but only when the banner is
         // user-facing transient state, not an in-flight prewarm progress
         // line. A prewarm banner is informational and the user should not
@@ -1353,8 +1392,11 @@ impl App {
                 }
             }
             Screen::CourseList => {
-                let inner = self.render_chrome(frame);
-                crate::ui::study::render_study(frame, inner, &self.study, self.cursor_visible);
+                // No study backdrop here: the overlay's own Clear only covers
+                // its centered modal rect, so any study content drawn first
+                // bleeds through the side margins. Chrome stays — it shows
+                // the active course meta the user is "behind".
+                let _inner = self.render_chrome(frame);
                 if let Some(ref state) = self.course_list {
                     crate::ui::course_list::render_course_list(frame, state);
                 }
@@ -1913,5 +1955,177 @@ mod cross_day_tests {
         // Another midnight crossing — fires again.
         clock.advance(Duration::hours(24));
         assert!(app.day_has_rolled_over());
+    }
+}
+
+#[cfg(test)]
+mod complete_auto_switch_tests {
+    use super::*;
+    use crate::clock::Clock;
+    use crate::config::Config;
+    use crate::storage::course::Course;
+    use crate::storage::mistakes::MistakeBook;
+    use crate::storage::paths::DataPaths;
+    use crate::storage::progress::Progress;
+    use crate::tts::speaker::{Speaker, TtsError};
+    use crate::ui::study::{StudyPhase, StudyState, COMPLETE_AUTO_SWITCH_DELAY_MS};
+    use chrono::{DateTime, Duration, TimeZone, Utc};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::{Arc, Mutex};
+
+    struct MutableClock(Mutex<DateTime<Utc>>);
+    impl MutableClock {
+        fn new(t: DateTime<Utc>) -> Self {
+            Self(Mutex::new(t))
+        }
+        fn advance(&self, by: Duration) {
+            let mut t = self.0.lock().unwrap();
+            *t += by;
+        }
+    }
+    impl Clock for MutableClock {
+        fn now(&self) -> DateTime<Utc> {
+            *self.0.lock().unwrap()
+        }
+    }
+
+    struct NoopSpeaker;
+    #[async_trait::async_trait]
+    impl Speaker for NoopSpeaker {
+        async fn speak(&self, _text: &str) -> Result<(), TtsError> {
+            Ok(())
+        }
+        fn cancel(&self) {}
+    }
+
+    fn drive_study_to_complete(clock: &dyn Clock) -> StudyState {
+        let json = include_str!("../fixtures/courses/good/minimal.json");
+        let course: Course = serde_json::from_str(json).unwrap();
+        let mut state = StudyState::new(Some(course), Progress::default());
+        while *state.phase() == StudyPhase::Active {
+            let english = state.current_drill().unwrap().english.clone();
+            for c in english.chars() {
+                state.type_char(c);
+            }
+            state.submit(clock);
+            state.advance();
+        }
+        assert_eq!(*state.phase(), StudyPhase::Complete);
+        state
+    }
+
+    fn app_in_complete(clock: Arc<MutableClock>) -> App {
+        let (task_tx, _rx) = tokio::sync::mpsc::channel(8);
+        let tmp = tempfile::tempdir()
+            .expect("tempdir for test fixture")
+            .keep();
+        let data_paths = DataPaths::for_tests(tmp);
+        let bundle_player = Arc::new(crate::audio::player::BundlePlayer::new(None));
+        let mut app = App::new(
+            None,
+            Progress::default(),
+            data_paths,
+            Arc::clone(&clock) as Arc<dyn Clock>,
+            Config::default(),
+            MistakeBook::default(),
+            None,
+            task_tx,
+            Arc::new(NoopSpeaker) as Arc<dyn Speaker>,
+            bundle_player,
+        );
+        app.study = drive_study_to_complete(clock.as_ref());
+        app
+    }
+
+    #[test]
+    fn complete_phase_auto_switches_to_course_list_after_delay() {
+        let t0 = Utc.with_ymd_and_hms(2026, 5, 14, 12, 0, 0).unwrap();
+        let clock = Arc::new(MutableClock::new(t0));
+        let mut app = app_in_complete(Arc::clone(&clock));
+
+        // First tick: starts the timer, still on Study screen.
+        app.on_tick();
+        assert!(matches!(app.screen, Screen::Study));
+
+        // Just under threshold — still on Study.
+        clock.advance(Duration::milliseconds(COMPLETE_AUTO_SWITCH_DELAY_MS - 1));
+        app.on_tick();
+        assert!(matches!(app.screen, Screen::Study));
+
+        // Crossing threshold — flips to CourseList.
+        clock.advance(Duration::milliseconds(1));
+        app.on_tick();
+        assert!(matches!(app.screen, Screen::CourseList));
+    }
+
+    #[test]
+    fn course_list_overlay_hides_underlying_study_content() {
+        // Regression: the CourseList screen rendered the Study screen as a
+        // backdrop while only clearing the modal rectangle, so Chinese
+        // sentences / soundmark / prompt underscores bled through the side
+        // margins. After the fix the overlay shows only chrome + the modal.
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+
+        let t0 = Utc.with_ymd_and_hms(2026, 5, 14, 12, 0, 0).unwrap();
+        let clock = Arc::new(MutableClock::new(t0));
+        let (task_tx, _rx) = tokio::sync::mpsc::channel(8);
+        let tmp = tempfile::tempdir().unwrap().keep();
+        let data_paths = DataPaths::for_tests(tmp);
+        let bundle_player = Arc::new(crate::audio::player::BundlePlayer::new(None));
+        let json = include_str!("../fixtures/courses/good/minimal.json");
+        let course: Course = serde_json::from_str(json).unwrap();
+        let mut app = App::new(
+            Some(course),
+            Progress::default(),
+            data_paths,
+            Arc::clone(&clock) as Arc<dyn Clock>,
+            Config::default(),
+            MistakeBook::default(),
+            None,
+            task_tx,
+            Arc::new(NoopSpeaker) as Arc<dyn Speaker>,
+            bundle_player,
+        );
+        app.open_course_list();
+        assert!(matches!(app.screen, Screen::CourseList));
+
+        let backend = TestBackend::new(120, 20);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| app.render(f)).unwrap();
+
+        let buffer = term.backend().buffer();
+        let leaked: Vec<_> = buffer
+            .content()
+            .iter()
+            .filter_map(|c| {
+                let s = c.symbol();
+                s.chars()
+                    .find(|ch| matches!(*ch, '\u{4E00}'..='\u{9FFF}'))
+                    .map(|ch| ch.to_string())
+            })
+            .collect();
+        assert!(
+            leaked.is_empty(),
+            "CourseList overlay leaked study-mode CJK chars into the frame: {leaked:?}"
+        );
+    }
+
+    #[test]
+    fn keypress_during_complete_cancels_auto_switch() {
+        let t0 = Utc.with_ymd_and_hms(2026, 5, 14, 12, 0, 0).unwrap();
+        let clock = Arc::new(MutableClock::new(t0));
+        let mut app = app_in_complete(Arc::clone(&clock));
+
+        // Timer starts.
+        app.on_tick();
+        // User taps a key — cancels the pending auto-switch.
+        let key = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE);
+        app.handle_study_key(key);
+
+        // Long after the threshold would have fired, screen still on Study.
+        clock.advance(Duration::seconds(10));
+        app.on_tick();
+        assert!(matches!(app.screen, Screen::Study));
     }
 }
