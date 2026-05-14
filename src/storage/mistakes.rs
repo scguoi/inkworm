@@ -52,6 +52,19 @@ pub struct MistakeBook {
     pub entries: Vec<MistakeEntry>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<SessionState>,
+    /// The local date the user finished today's review (every entry had
+    /// both rounds attempted). Sticky for the rest of that date: mid-day
+    /// additions via `record_normal_attempt` keep the latch so the user
+    /// doesn't get re-yanked into mistakes mode on relaunch after they
+    /// already paid the day's review tax. `/mistakes` (force) ignores
+    /// it. Cleared implicitly on date change because the equality check
+    /// in `ensure_session_inner` is against the new `today_local`.
+    #[serde(
+        rename = "dailyReviewDoneOn",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub daily_review_done_on: Option<NaiveDate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -247,15 +260,33 @@ impl MistakeBook {
         // Evaluate qualifying day: both rounds correct AND not already
         // counted today.
         let both_correct = matches!(today.round1, Some(true)) && matches!(today.round2, Some(true));
-        if both_correct && entry.last_qualified_date != Some(today_local) {
+        let cleared = if both_correct && entry.last_qualified_date != Some(today_local) {
             entry.streak_days += 1;
             entry.last_qualified_date = Some(today_local);
             if entry.streak_days >= 3 {
                 self.entries.remove(idx);
-                return MistakesOutcome { cleared: true };
+                true
+            } else {
+                false
             }
+        } else {
+            false
+        };
+        // Latch the daily-done flag the moment all remaining entries have
+        // today's two rounds in. Sticky for the rest of the day so a
+        // later promotion from normal study doesn't re-trigger the
+        // auto-pop on relaunch.
+        self.maybe_latch_daily_done(today_local);
+        MistakesOutcome { cleared }
+    }
+
+    /// Set `daily_review_done_on = Some(today_local)` iff every current
+    /// entry has both rounds attempted today. No-op on empty entries
+    /// (nothing to review) and on partial completion.
+    fn maybe_latch_daily_done(&mut self, today_local: NaiveDate) {
+        if !self.entries.is_empty() && self.all_entries_today_attempted(today_local) {
+            self.daily_review_done_on = Some(today_local);
         }
-        MistakesOutcome { cleared: false }
     }
 }
 
@@ -302,12 +333,21 @@ impl MistakeBook {
         if self.entries.is_empty() {
             return false;
         }
+        // Sticky daily-done latch: once today's review is paid, mid-day
+        // additions don't re-trigger the auto-pop.
+        if !force && self.daily_review_done_on == Some(today_local) {
+            self.session = None;
+            return false;
+        }
         // Drop any session whose work is already done today. Runs
         // before the `session.is_some()` resume short-circuit so it
         // also reclaims phantom sessions persisted by older builds
         // that auto-recreated a fresh round-1 session after today's
-        // two rounds were already completed.
+        // two rounds were already completed. Also back-fills the latch
+        // for upgraders whose existing data is already "done today" but
+        // pre-dates the latch field.
         if !force && self.all_entries_today_attempted(today_local) {
+            self.daily_review_done_on = Some(today_local);
             self.session = None;
             return false;
         }

@@ -150,6 +150,7 @@ fn populated_book_round_trips_camel_case_keys() {
             next_index: 0,
             round1_completed: false,
         }),
+        daily_review_done_on: None,
     };
     b.wrong_streaks.insert("course-b|1|1".into(), 1);
     let json = serde_json::to_string(&b).unwrap();
@@ -234,6 +235,7 @@ fn book_with_one_entry(streak: u32, last_q: Option<chrono::NaiveDate>) -> Mistak
             today: None,
         }],
         session: None,
+        daily_review_done_on: None,
     }
 }
 
@@ -400,6 +402,66 @@ fn ensure_session_skips_when_today_done_even_for_failed_attempts() {
     let started = b.ensure_session(d("2026-04-27"));
     assert!(!started);
     assert!(b.session.is_none());
+}
+
+#[test]
+fn ensure_session_skips_when_today_done_even_after_new_entry_added() {
+    // User finished today's R1+R2 across all existing entries, then
+    // answered wrong in normal study and promoted a fresh mistake.
+    // The fresh entry has today=None, so the bare
+    // `all_entries_today_attempted` check flips false — but the user
+    // already paid today's review tax, so we must NOT yank them back
+    // into mistakes mode on relaunch. The fix latches a per-day
+    // "done" flag that survives later entry additions.
+    let today = d("2026-04-27");
+    let mut b = MistakeBook::default();
+    let mut done_entry = entry_for(drill_a(), now());
+    done_entry.today = Some(TodayAttempts {
+        date: today,
+        round1: Some(true),
+        round2: Some(true),
+    });
+    b.entries.push(done_entry);
+
+    // Simulate the last mistakes-mode attempt that completed today's
+    // duty — this is where the latch fires in real flow.
+    b.record_mistakes_attempt(&drill_a(), 2, true, today);
+
+    // Now a brand-new mistake gets promoted into entries via normal
+    // study mode. It has no `today` attempts.
+    b.entries.push(entry_for(drill_b(), now()));
+
+    let started = b.ensure_session(today);
+    assert!(
+        !started,
+        "today's review duty was already paid; a new mid-day mistake must not re-pop the session"
+    );
+    assert!(b.session.is_none());
+}
+
+#[test]
+fn daily_done_latch_does_not_block_next_day() {
+    // The latch must be scoped to the day it was set on. Same data,
+    // but ensure_session called on the next local date — auto-pop
+    // should run as usual.
+    let today = d("2026-04-27");
+    let tomorrow = d("2026-04-28");
+    let mut b = MistakeBook::default();
+    let mut done_entry = entry_for(drill_a(), now());
+    done_entry.today = Some(TodayAttempts {
+        date: today,
+        round1: Some(true),
+        round2: Some(true),
+    });
+    b.entries.push(done_entry);
+    b.record_mistakes_attempt(&drill_a(), 2, true, today);
+
+    let started = b.ensure_session(tomorrow);
+    assert!(
+        started,
+        "the daily-done latch must not survive past its day"
+    );
+    assert!(b.session.is_some());
 }
 
 #[test]
