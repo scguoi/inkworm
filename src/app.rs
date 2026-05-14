@@ -756,6 +756,22 @@ impl App {
         }
     }
 
+    fn submit_current_input(&mut self) {
+        let (outcome, tick) = self.study.submit(self.clock.as_ref());
+        if let Some(o) = outcome {
+            self.handle_submit_outcome(o);
+        }
+        if let Some(t) = tick {
+            self.stats
+                .on_submit(self.clock.now(), t.was_correct, t.words);
+            let snap = self.stats.snapshot();
+            if let Err(e) = snap.save(&self.data_paths.stats_file) {
+                tracing::warn!("Failed to save stats: {e}");
+                self.info_banner = Some(format!("Failed to save stats: {e}"));
+            }
+        }
+    }
+
     fn handle_study_key(&mut self, key: KeyEvent) {
         self.stats.on_keystroke(self.clock.now());
         // Any key during the Complete pause cancels the courtesy auto-switch
@@ -815,25 +831,19 @@ impl App {
                 self.speak_current_drill();
             }
             FeedbackState::Typing => match key.code {
-                KeyCode::Char(c) => self.study.type_char(c),
+                KeyCode::Char(c) => {
+                    self.study.type_char(c);
+                    // Filled the skeleton — submit without waiting for Enter.
+                    if self.study.is_input_at_target() {
+                        self.submit_current_input();
+                    }
+                }
                 KeyCode::Backspace => self.study.backspace(),
                 KeyCode::Enter => {
                     if self.study.input().is_empty() {
                         self.speak_current_drill();
                     } else {
-                        let (outcome, tick) = self.study.submit(self.clock.as_ref());
-                        if let Some(o) = outcome {
-                            self.handle_submit_outcome(o);
-                        }
-                        if let Some(t) = tick {
-                            self.stats
-                                .on_submit(self.clock.now(), t.was_correct, t.words);
-                            let snap = self.stats.snapshot();
-                            if let Err(e) = snap.save(&self.data_paths.stats_file) {
-                                tracing::warn!("Failed to save stats: {e}");
-                                self.info_banner = Some(format!("Failed to save stats: {e}"));
-                            }
-                        }
+                        self.submit_current_input();
                     }
                 }
                 KeyCode::Tab => {

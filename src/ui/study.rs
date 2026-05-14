@@ -229,6 +229,24 @@ impl StudyState {
         self.input.pop();
     }
 
+    /// True iff the input has reached (or overshot) the target's char count
+    /// while still in the Typing phase. The caller uses this to auto-submit
+    /// without an explicit Enter once every position in the skeleton has been
+    /// filled.
+    pub fn is_input_at_target(&self) -> bool {
+        if self.phase != StudyPhase::Active {
+            return false;
+        }
+        if self.feedback != FeedbackState::Typing {
+            return false;
+        }
+        let Some(drill) = self.current_drill() else {
+            return false;
+        };
+        let target_len = drill.english.chars().count();
+        target_len > 0 && self.input.chars().count() >= target_len
+    }
+
     pub fn submit(&mut self, clock: &dyn Clock) -> (Option<SubmitOutcome>, Option<SubmitTick>) {
         if self.phase != StudyPhase::Active {
             return (None, None);
@@ -716,6 +734,42 @@ mod tests {
         }
         state.submit(&clk);
         assert_eq!(*state.feedback(), FeedbackState::Wrong);
+    }
+
+    #[test]
+    fn is_input_at_target_tracks_char_count() {
+        // Fixture target = "AI think day" (12 chars).
+        let mut state = StudyState::new(Some(fixture_course()), Progress::empty());
+        assert!(!state.is_input_at_target());
+        for c in "AI think".chars() {
+            state.type_char(c);
+        }
+        assert!(!state.is_input_at_target(), "8 chars < 12-char target");
+        for c in " day".chars() {
+            state.type_char(c);
+        }
+        assert!(state.is_input_at_target(), "12 chars == 12-char target");
+        // Overshoot keeps it true so paste-style overflow still triggers.
+        state.type_char('!');
+        assert!(state.is_input_at_target());
+    }
+
+    #[test]
+    fn is_input_at_target_false_when_not_typing() {
+        let clk = clock();
+        let mut state = StudyState::new(Some(fixture_course()), Progress::empty());
+        for c in "AI think day".chars() {
+            state.type_char(c);
+        }
+        state.submit(&clk);
+        assert_eq!(*state.feedback(), FeedbackState::Correct);
+        assert!(!state.is_input_at_target());
+    }
+
+    #[test]
+    fn is_input_at_target_false_when_no_course() {
+        let state = StudyState::new(None, Progress::empty());
+        assert!(!state.is_input_at_target());
     }
 
     #[test]
