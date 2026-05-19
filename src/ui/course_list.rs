@@ -116,20 +116,46 @@ impl CourseListState {
         }
     }
 
+    /// Move the cursor down one slot. Stops at the last item — does NOT
+    /// wrap back to the top. Wrapping made stray keypresses at the bottom
+    /// fling the cursor across the list, with no position read to recover
+    /// from. `select_last` is the explicit way to jump.
     pub fn select_next(&mut self) {
         if self.items.is_empty() {
             return;
         }
         self.disarm();
-        self.selected = (self.selected + 1) % self.items.len();
+        if self.selected + 1 < self.items.len() {
+            self.selected += 1;
+        }
     }
 
+    /// Move the cursor up one slot. Stops at the first item — see
+    /// [`Self::select_next`] for the rationale on dropping wrap-around.
     pub fn select_prev(&mut self) {
         if self.items.is_empty() {
             return;
         }
         self.disarm();
-        self.selected = (self.selected + self.items.len() - 1) % self.items.len();
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    /// Jump straight to the first item. Bound to `Home` in the overlay.
+    pub fn select_first(&mut self) {
+        if self.items.is_empty() {
+            return;
+        }
+        self.disarm();
+        self.selected = 0;
+    }
+
+    /// Jump straight to the last item. Bound to `End` in the overlay.
+    pub fn select_last(&mut self) {
+        if self.items.is_empty() {
+            return;
+        }
+        self.disarm();
+        self.selected = self.items.len() - 1;
     }
 
     pub fn page_down(&mut self, page: usize) {
@@ -243,7 +269,15 @@ pub fn render_course_list(frame: &mut Frame, state: &CourseListState) {
 
     frame.render_widget(Clear, Rect::new(x, y, width, total_height));
 
-    let header = format!("Courses ({})", state.items.len());
+    // Header carries both totals and current position. Now that ↑↓ no
+    // longer wraps, the "3/10" read replaces the implicit cycle as the
+    // user's sense of place in the list.
+    let header = format!(
+        "Courses ({}) · {}/{}",
+        state.items.len(),
+        state.selected + 1,
+        state.items.len()
+    );
     let header_para = Paragraph::new(Span::styled(
         header,
         Style::default()
@@ -286,7 +320,7 @@ pub fn render_course_list(frame: &mut Frame, state: &CourseListState) {
         }
     }
 
-    let hint = "↑↓ · move    Enter · switch    Esc · close";
+    let hint = "↑↓ · move   Home/End · jump   Enter · switch   Esc · close";
     let hint_para = Paragraph::new(Span::styled(hint, Style::default().fg(Color::DarkGray)));
     frame.render_widget(
         hint_para,
@@ -340,23 +374,65 @@ mod tests {
     }
 
     #[test]
-    fn select_next_wraps() {
+    fn select_next_stops_at_last() {
+        // ↑↓ used to wrap; the loop felt jarring on a 10-course list because
+        // a stray keypress at the bottom flung the cursor back to the top.
+        // Borders should hold; Home/End is the explicit way to teleport.
         let metas = vec![meta("a", (2026, 4, 10)), meta("b", (2026, 4, 20))];
         let mut state = CourseListState::new(metas, &Progress::empty());
         state.selected = 0;
         state.select_next();
         assert_eq!(state.selected, 1);
         state.select_next();
-        assert_eq!(state.selected, 0);
+        assert_eq!(state.selected, 1, "must not wrap past last");
     }
 
     #[test]
-    fn select_prev_wraps() {
+    fn select_prev_stops_at_first() {
         let metas = vec![meta("a", (2026, 4, 10)), meta("b", (2026, 4, 20))];
         let mut state = CourseListState::new(metas, &Progress::empty());
         state.selected = 0;
         state.select_prev();
-        assert_eq!(state.selected, 1);
+        assert_eq!(state.selected, 0, "must not wrap past first");
+    }
+
+    #[test]
+    fn select_first_and_last_jump_to_ends() {
+        let metas: Vec<_> = (0..5)
+            .map(|i| meta(&format!("c{i}"), (2026, 4, i + 1)))
+            .collect();
+        let mut state = CourseListState::new(metas, &Progress::empty());
+        state.selected = 2;
+        state.select_last();
+        assert_eq!(state.selected, 4);
+        state.select_first();
+        assert_eq!(state.selected, 0);
+    }
+
+    #[test]
+    fn select_first_and_last_disarm_over_learned() {
+        // Like every other cursor mover, Home/End must cancel a pending
+        // over-learned relearn confirmation — the user is no longer pointing
+        // at the course they armed.
+        let metas = vec![meta("a", (2026, 4, 10)), meta("b", (2026, 4, 20))];
+        let mut state = CourseListState::new(metas, &Progress::empty());
+        let now = Utc.with_ymd_and_hms(2026, 5, 14, 12, 0, 0).unwrap();
+
+        state.arm_over_learned("a".into(), now);
+        state.select_last();
+        assert!(state.over_learned_armed.is_none());
+
+        state.arm_over_learned("a".into(), now);
+        state.select_first();
+        assert!(state.over_learned_armed.is_none());
+    }
+
+    #[test]
+    fn select_first_and_last_noop_on_empty() {
+        let mut state = CourseListState::new(vec![], &Progress::empty());
+        state.select_first();
+        state.select_last();
+        assert_eq!(state.selected, 0);
     }
 
     #[test]
@@ -543,6 +619,62 @@ mod tests {
         assert!(
             rendered.contains("✓0"),
             "expected '✓0' badge for the never-studied course (column alignment), got: {rendered:?}"
+        );
+    }
+
+    #[test]
+    fn header_shows_position_indicator() {
+        // The header gives the user a position read ("3/10") so they always
+        // know where they are in the list — borders no longer wrap, so a
+        // sense of place replaces the implicit cycle as the orientation cue.
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let backend = TestBackend::new(80, 12);
+        let mut term = Terminal::new(backend).unwrap();
+        let metas: Vec<_> = (0..10)
+            .map(|i| meta(&format!("c{i}"), (2026, 4, i + 1)))
+            .collect();
+        let mut state = CourseListState::new(metas, &Progress::empty());
+        state.selected = 2;
+        term.draw(|f| render_course_list(f, &state)).unwrap();
+        let rendered: String = term
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(
+            rendered.contains("Courses (10)"),
+            "expected total count in header, got: {rendered:?}"
+        );
+        assert!(
+            rendered.contains("3/10"),
+            "expected '3/10' position indicator (1-indexed), got: {rendered:?}"
+        );
+    }
+
+    #[test]
+    fn hint_advertises_home_end_jump() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let backend = TestBackend::new(80, 12);
+        let mut term = Terminal::new(backend).unwrap();
+        let metas: Vec<_> = (0..3)
+            .map(|i| meta(&format!("c{i}"), (2026, 4, i + 1)))
+            .collect();
+        let state = CourseListState::new(metas, &Progress::empty());
+        term.draw(|f| render_course_list(f, &state)).unwrap();
+        let rendered: String = term
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(
+            rendered.contains("Home/End"),
+            "hint row must surface Home/End so users have an escape hatch now that ↑↓ no longer wraps, got: {rendered:?}"
         );
     }
 

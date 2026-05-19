@@ -1684,6 +1684,16 @@ impl App {
                     s.page_down(5);
                 }
             }
+            KeyCode::Home => {
+                if let Some(s) = &mut self.course_list {
+                    s.select_first();
+                }
+            }
+            KeyCode::End => {
+                if let Some(s) = &mut self.course_list {
+                    s.select_last();
+                }
+            }
             KeyCode::Enter => {
                 let Some(list) = self.course_list.as_ref() else {
                     return;
