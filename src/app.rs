@@ -25,6 +25,21 @@ use crate::ui::task_msg::{GenerateProgress, TaskMsg};
 
 const MISTAKES_DONE_BANNER: &str = "Review complete for today ✓";
 
+/// How long a transient `info_banner` (toast) stays on screen before
+/// `on_tick` clears it. Banners set via `set_persistent_banner` (currently
+/// the prewarm progress line) are exempt — those clear explicitly when the
+/// underlying state ends.
+const TOAST_DURATION_MS: i64 = 1000;
+
+/// Max time progress / mistakes may stay dirty in memory before `on_tick`
+/// flushes them to disk. Per-keystroke writes to iCloud-synced files
+/// triggered an upload notification on every answered drill; debouncing
+/// trades up to this many milliseconds of crash-loss risk for an
+/// order-of-magnitude drop in sync events. Critical boundaries
+/// (quit, course switch, session start/end) bypass this via
+/// `flush_all_now`.
+const FLUSH_INTERVAL_MS: i64 = 30_000;
+
 pub enum Screen {
     Study,
     Palette,
@@ -86,6 +101,10 @@ pub struct App {
     pub tts_session_disabled: bool,
     pub doctor_results: Option<Vec<crate::ui::doctor::CheckResult>>,
     pub info_banner: Option<String>,
+    info_banner_expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    progress_dirty: bool,
+    mistakes_dirty: bool,
+    last_flush_at: chrono::DateTime<chrono::Utc>,
     pub shell_header: crate::ui::shell_chrome::ShellHeader,
     prewarm_generation: Arc<AtomicU64>,
     prewarm_state: Option<PrewarmState>,
@@ -114,6 +133,7 @@ impl App {
         bundle_player: Arc<crate::audio::player::BundlePlayer>,
     ) -> Self {
         let last_seen_day = clock.today_local();
+        let now = clock.now();
         let stats_loaded = Stats::load(&data_paths.stats_file).unwrap_or_else(|e| {
             tracing::warn!("Failed to load stats: {e}");
             Stats::empty()
@@ -147,6 +167,10 @@ impl App {
             tts_session_disabled: false,
             doctor_results: None,
             info_banner: None,
+            info_banner_expires_at: None,
+            progress_dirty: false,
+            mistakes_dirty: false,
+            last_flush_at: now,
             shell_header: crate::ui::shell_chrome::ShellHeader::detect(),
             prewarm_generation: Arc::new(AtomicU64::new(0)),
             prewarm_state: None,
@@ -156,8 +180,10 @@ impl App {
         app.startup_apply_mistakes_session();
         app.maybe_open_course_list_at_startup();
         app.spawn_bundle_prewarm();
-        if boot_warning.is_some() && app.info_banner.is_none() {
-            app.info_banner = boot_warning;
+        if let Some(text) = boot_warning {
+            if app.info_banner.is_none() {
+                app.set_toast(text);
+            }
         }
         app
     }
@@ -189,7 +215,8 @@ impl App {
         if self.mistakes.peek_current_drill().is_some() {
             self.enter_mistakes_mode_at_current_drill();
         }
-        self.save_mistakes();
+        self.mark_mistakes_dirty();
+        self.flush_all_now();
     }
 
     /// True iff the local date has changed since the last call. Latches —
@@ -232,7 +259,7 @@ impl App {
             if self.prewarm_state.take().is_some() {
                 self.prewarm_generation
                     .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-                self.info_banner = None;
+                self.clear_banner();
             }
             return;
         }
@@ -246,7 +273,7 @@ impl App {
             done: 0,
             total,
         });
-        self.info_banner = Some(format!("Prewarming audio (0/{})…", total));
+        self.set_persistent_banner(format!("Prewarming audio (0/{})…", total));
         tracing::info!(
             "bundle prewarm start: generation={} total={}",
             generation,
@@ -273,7 +300,8 @@ impl App {
             Some(c) => c,
             None => {
                 self.mistakes.purge_course(&drill_ref.course_id);
-                self.save_mistakes();
+                self.mark_mistakes_dirty();
+                self.flush_all_now();
                 if self.mistakes.peek_current_drill().is_some() {
                     self.enter_mistakes_mode_at_current_drill();
                 }
@@ -309,11 +337,84 @@ impl App {
         self.speak_current_drill();
     }
 
-    fn save_mistakes(&mut self) {
-        if let Err(e) = self.mistakes.save(&self.data_paths.mistakes_file) {
-            let msg = format!("Failed to save review state: {e}");
-            tracing::warn!("{msg}");
-            self.info_banner = Some(msg);
+    /// Set a transient banner that `on_tick` will clear after
+    /// `TOAST_DURATION_MS`. Use this for all user-facing notices that
+    /// don't represent ongoing background state.
+    pub fn set_toast(&mut self, text: String) {
+        self.info_banner = Some(text);
+        self.info_banner_expires_at = Some(
+            self.clock.now() + chrono::Duration::milliseconds(TOAST_DURATION_MS),
+        );
+    }
+
+    /// Set a banner that stays until explicitly cleared. Reserved for
+    /// in-flight background state (e.g. prewarm progress) whose end is
+    /// signaled by a separate event.
+    pub fn set_persistent_banner(&mut self, text: String) {
+        self.info_banner = Some(text);
+        self.info_banner_expires_at = None;
+    }
+
+    fn clear_banner(&mut self) {
+        self.info_banner = None;
+        self.info_banner_expires_at = None;
+    }
+
+    fn tick_banner_expiry(&mut self) {
+        if let Some(expires) = self.info_banner_expires_at {
+            if self.clock.now() >= expires {
+                self.clear_banner();
+            }
+        }
+    }
+
+    /// Mark progress as needing a flush. The actual write happens on the
+    /// next debounce-due tick or via `flush_all_now` at a critical
+    /// boundary (quit, course switch, session edge).
+    pub fn mark_progress_dirty(&mut self) {
+        self.progress_dirty = true;
+    }
+
+    /// Mark the mistake book as needing a flush. Same debouncing rules
+    /// as `mark_progress_dirty`.
+    pub fn mark_mistakes_dirty(&mut self) {
+        self.mistakes_dirty = true;
+    }
+
+    /// Flush any pending progress / mistakes writes right now. Always
+    /// safe to call; it's a no-op when nothing is dirty. Critical
+    /// boundaries (quit, course switch, session start/end) call this
+    /// so a crash on the next instruction can't lose the user's last
+    /// answers.
+    pub fn flush_all_now(&mut self) {
+        let wrote = self.progress_dirty || self.mistakes_dirty;
+        if self.progress_dirty {
+            let _ = self
+                .study
+                .progress()
+                .save(&self.data_paths.progress_file);
+            self.progress_dirty = false;
+        }
+        if self.mistakes_dirty {
+            if let Err(e) = self.mistakes.save(&self.data_paths.mistakes_file) {
+                let msg = format!("Failed to save review state: {e}");
+                tracing::warn!("{msg}");
+                self.set_toast(msg);
+            }
+            self.mistakes_dirty = false;
+        }
+        if wrote {
+            self.last_flush_at = self.clock.now();
+        }
+    }
+
+    fn tick_flush_if_due(&mut self) {
+        if !self.progress_dirty && !self.mistakes_dirty {
+            return;
+        }
+        let elapsed = (self.clock.now() - self.last_flush_at).num_milliseconds();
+        if elapsed >= FLUSH_INTERVAL_MS {
+            self.flush_all_now();
         }
     }
 
@@ -339,14 +440,14 @@ impl App {
                     self.clock.today_local(),
                 );
                 if result.cleared {
-                    self.info_banner = Some(format!(
+                    self.set_toast(format!(
                         "{} stage {} cleared ✓",
                         outcome.drill_ref.course_id, outcome.drill_ref.drill_stage
                     ));
                 }
             }
         }
-        self.save_mistakes();
+        self.mark_mistakes_dirty();
     }
 
     /// Remove a single orphaned entry (course exists but sentence/stage no
@@ -365,7 +466,8 @@ impl App {
                 self.mistakes.session = None;
             }
         }
-        self.save_mistakes();
+        self.mark_mistakes_dirty();
+        self.flush_all_now();
     }
 
     fn enter_course_mode(&mut self) {
@@ -494,10 +596,9 @@ impl App {
     fn switch_to_course(&mut self, new_id: String) {
         use crate::storage::course::load_course;
         use crate::storage::progress::course_stats;
-        // Best-effort save before switching.
-        if let Err(e) = self.study.progress().save(&self.data_paths.progress_file) {
-            eprintln!("Failed to save progress before switch: {e}");
-        }
+        // Flush any pending writes before switching so a crash during course
+        // load can't lose the previous course's last answers.
+        self.flush_all_now();
         let course = match load_course(&self.data_paths.courses_dir, &new_id) {
             Ok(c) => c,
             Err(e) => {
@@ -516,9 +617,8 @@ impl App {
         if stats.total_drills > 0 && stats.completed_drills == stats.total_drills {
             self.study.progress_mut().reset_course_progress(&course.id);
         }
-        if let Err(e) = self.study.progress().save(&self.data_paths.progress_file) {
-            eprintln!("Failed to save progress after switch: {e}");
-        }
+        self.mark_progress_dirty();
+        self.flush_all_now();
         let progress = self.study.progress().clone();
         self.study = crate::ui::study::StudyState::new(Some(course), progress);
         self.course_list = None;
@@ -530,6 +630,8 @@ impl App {
     pub fn on_tick(&mut self) {
         self.blink_counter += 1;
         self.stats.flush_idle(self.clock.now());
+        self.tick_banner_expiry();
+        self.tick_flush_if_due();
         if self.blink_counter >= 33 {
             self.blink_counter = 0;
             self.cursor_visible = !self.cursor_visible;
@@ -589,18 +691,20 @@ impl App {
                 return;
             }
             self.mistakes.advance_session();
-            self.save_mistakes();
+            self.mark_mistakes_dirty();
             if self.mistakes.peek_current_drill().is_some() {
                 self.enter_mistakes_mode_at_current_drill();
             } else {
-                // Session finished.
-                self.info_banner = Some(MISTAKES_DONE_BANNER.into());
+                // Session finished: a critical boundary, flush both books
+                // so a crash on the user's next keystroke can't lose state.
+                self.flush_all_now();
+                self.set_toast(MISTAKES_DONE_BANNER.into());
                 self.enter_course_mode();
             }
             self.speak_current_drill();
         } else {
             if self.study.auto_advance_if_due(now) {
-                let _ = self.study.progress().save(&self.data_paths.progress_file);
+                self.mark_progress_dirty();
                 self.speak_current_drill();
             }
         }
@@ -693,7 +797,10 @@ impl App {
                     if state.generation == generation {
                         state.done = done;
                         state.total = total;
-                        self.info_banner = Some(format!("Prewarming audio ({}/{})…", done, total));
+                        self.set_persistent_banner(format!(
+                            "Prewarming audio ({}/{})…",
+                            done, total
+                        ));
                     }
                 }
             }
@@ -710,7 +817,7 @@ impl App {
                 if matches {
                     self.prewarm_state = None;
                     if failed == 0 {
-                        self.info_banner = None;
+                        self.clear_banner();
                         tracing::info!(
                             "bundle prewarm done: generation={} ok={} failed=0",
                             generation,
@@ -718,7 +825,7 @@ impl App {
                         );
                     } else {
                         let total = ok + failed;
-                        self.info_banner = Some(format!(
+                        self.set_toast(format!(
                             "Audio ready ({}/{}), {} files unavailable",
                             ok, total, failed
                         ));
@@ -767,7 +874,8 @@ impl App {
                     return;
                 }
                 self.study.progress_mut().active_course_id = Some(course_id.clone());
-                let _ = self.study.progress().save(&self.data_paths.progress_file);
+                self.mark_progress_dirty();
+                self.flush_all_now();
                 self.study = StudyState::new(Some(course), self.study.progress().clone());
                 self.generate = None;
                 self.screen = Screen::Study;
@@ -794,7 +902,7 @@ impl App {
             let snap = self.stats.snapshot();
             if let Err(e) = snap.save(&self.data_paths.stats_file) {
                 tracing::warn!("Failed to save stats: {e}");
-                self.info_banner = Some(format!("Failed to save stats: {e}"));
+                self.set_toast(format!("Failed to save stats: {e}"));
             }
         }
     }
@@ -809,15 +917,6 @@ impl App {
             self.complete_auto_switch_started_at = None;
             self.complete_auto_switch_cancelled = true;
         }
-        // Clear info banner on any key — but only when the banner is
-        // user-facing transient state, not an in-flight prewarm progress
-        // line. A prewarm banner is informational and the user should not
-        // have to spend a keypress dismissing it before they can type.
-        if self.info_banner.is_some() && self.prewarm_state.is_none() {
-            self.info_banner = None;
-            return;
-        }
-
         // Command+Backspace: delete to beginning of line
         if key.modifiers.contains(KeyModifiers::SUPER) && key.code == KeyCode::Backspace {
             self.study.delete_to_line_start();
@@ -840,15 +939,16 @@ impl App {
         {
             // Park session as-is and drop back to course mode. Next launch /
             // /mistakes resumes from session.next_index.
-            self.save_mistakes();
-            self.info_banner = Some("Review paused (resume with /mistakes)".into());
+            self.mark_mistakes_dirty();
+            self.flush_all_now();
+            self.set_toast("Review paused (resume with /mistakes)".into());
             self.enter_course_mode();
             self.speak_current_drill();
             return;
         }
         match self.study.feedback() {
             FeedbackState::Correct => {
-                let _ = self.study.progress().save(&self.data_paths.progress_file);
+                self.mark_progress_dirty();
                 self.study.advance();
                 self.speak_current_drill();
             }
@@ -877,11 +977,12 @@ impl App {
                     if matches!(self.study.mode(), crate::ui::study::StudyMode::Mistakes) {
                         // Skip in mistakes mode: advance via session queue, no verdict recorded.
                         self.mistakes.advance_session();
-                        self.save_mistakes();
+                        self.mark_mistakes_dirty();
                         if self.mistakes.peek_current_drill().is_some() {
                             self.enter_mistakes_mode_at_current_drill();
                         } else {
-                            self.info_banner = Some(MISTAKES_DONE_BANNER.into());
+                            self.flush_all_now();
+                            self.set_toast(MISTAKES_DONE_BANNER.into());
                             self.enter_course_mode();
                         }
                     } else {
@@ -1042,9 +1143,10 @@ impl App {
                         }
                         self.study.progress_mut().courses.remove(&course_id);
                         self.study.progress_mut().active_course_id = None;
-                        let _ = self.study.progress().save(&self.data_paths.progress_file);
+                        self.mark_progress_dirty();
                         self.mistakes.purge_course(&course_id);
-                        self.save_mistakes();
+                        self.mark_mistakes_dirty();
+                        self.flush_all_now();
                         self.study = StudyState::new(None, self.study.progress().clone());
                     }
                 }
@@ -1179,12 +1281,13 @@ impl App {
             "mistakes" => {
                 let today = self.clock.today_local();
                 self.mistakes.ensure_session_force(today);
-                self.save_mistakes();
+                self.mark_mistakes_dirty();
+                self.flush_all_now();
                 if self.mistakes.peek_current_drill().is_some() {
                     self.enter_mistakes_mode_at_current_drill();
                     self.speak_current_drill();
                 } else {
-                    self.info_banner = Some("🎉 No reviews today".into());
+                    self.set_toast("🎉 No reviews today".into());
                 }
             }
             "doctor" => self.execute_doctor(),
@@ -1218,8 +1321,7 @@ impl App {
     }
 
     fn execute_logs(&mut self) {
-        let log_path = self.data_paths.root.join("inkworm.log");
-        let path_str = log_path.display().to_string();
+        let path_str = self.data_paths.log_file.display().to_string();
 
         let _ = std::process::Command::new("pbcopy")
             .stdin(std::process::Stdio::piped())
@@ -1232,7 +1334,7 @@ impl App {
                 child.wait()
             });
 
-        self.info_banner = Some(format!("Copied to clipboard: {}", path_str));
+        self.set_toast(format!("Copied to clipboard: {}", path_str));
         self.screen = Screen::Study;
     }
 
@@ -1254,7 +1356,9 @@ impl App {
         }
         self.speaker.cancel();
         self.bundle_player.cancel();
-        let _ = self.study.progress().save(&self.data_paths.progress_file);
+        // Final flush — any debounced progress / mistakes writes must hit
+        // disk before we exit. No-op when nothing is dirty.
+        self.flush_all_now();
         self.should_quit = true;
     }
 
@@ -2283,6 +2387,177 @@ mod startup_picker_tests {
         assert!(
             matches!(app.screen, Screen::Study),
             "no active course → stay on Study (renders empty state); picker auto-open guards on a loaded course"
+        );
+    }
+}
+
+#[cfg(test)]
+mod toast_tests {
+    use super::*;
+    use crate::clock::Clock;
+    use crate::config::Config;
+    use crate::storage::mistakes::MistakeBook;
+    use crate::storage::paths::DataPaths;
+    use crate::storage::progress::Progress;
+    use crate::tts::speaker::{Speaker, TtsError};
+    use chrono::{DateTime, Duration, TimeZone, Utc};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::{Arc, Mutex};
+
+    struct MutableClock(Mutex<DateTime<Utc>>);
+    impl MutableClock {
+        fn new(t: DateTime<Utc>) -> Self {
+            Self(Mutex::new(t))
+        }
+        fn advance(&self, by: Duration) {
+            let mut t = self.0.lock().unwrap();
+            *t += by;
+        }
+    }
+    impl Clock for MutableClock {
+        fn now(&self) -> DateTime<Utc> {
+            *self.0.lock().unwrap()
+        }
+    }
+
+    struct NoopSpeaker;
+    #[async_trait::async_trait]
+    impl Speaker for NoopSpeaker {
+        async fn speak(&self, _text: &str) -> Result<(), TtsError> {
+            Ok(())
+        }
+        fn cancel(&self) {}
+    }
+
+    fn app_with_clock(clock: Arc<MutableClock>) -> App {
+        let (task_tx, _rx) = tokio::sync::mpsc::channel(8);
+        let tmp = tempfile::tempdir()
+            .expect("tempdir for test fixture")
+            .keep();
+        let data_paths = DataPaths::for_tests(tmp);
+        let bundle_player = Arc::new(crate::audio::player::BundlePlayer::new(None));
+        App::new(
+            None,
+            Progress::default(),
+            data_paths,
+            clock,
+            Config::default(),
+            MistakeBook::default(),
+            None,
+            task_tx,
+            Arc::new(NoopSpeaker) as Arc<dyn Speaker>,
+            bundle_player,
+        )
+    }
+
+    #[test]
+    fn toast_clears_after_1000ms() {
+        let t0 = Utc.with_ymd_and_hms(2026, 5, 18, 12, 0, 0).unwrap();
+        let clock = Arc::new(MutableClock::new(t0));
+        let mut app = app_with_clock(Arc::clone(&clock));
+        app.set_toast("stage 1 cleared ✓".into());
+        assert_eq!(app.info_banner.as_deref(), Some("stage 1 cleared ✓"));
+
+        clock.advance(Duration::milliseconds(999));
+        app.on_tick();
+        assert_eq!(
+            app.info_banner.as_deref(),
+            Some("stage 1 cleared ✓"),
+            "before expiry still visible"
+        );
+
+        clock.advance(Duration::milliseconds(2));
+        app.on_tick();
+        assert!(
+            app.info_banner.is_none(),
+            "after 1000ms toast should be gone"
+        );
+    }
+
+    #[test]
+    fn persistent_banner_does_not_expire() {
+        let t0 = Utc.with_ymd_and_hms(2026, 5, 18, 12, 0, 0).unwrap();
+        let clock = Arc::new(MutableClock::new(t0));
+        let mut app = app_with_clock(Arc::clone(&clock));
+        app.set_persistent_banner("Prewarming audio (0/5)…".into());
+
+        clock.advance(Duration::seconds(30));
+        app.on_tick();
+        assert_eq!(
+            app.info_banner.as_deref(),
+            Some("Prewarming audio (0/5)…"),
+            "persistent banner must not be cleared by tick"
+        );
+    }
+
+    #[test]
+    fn mark_progress_dirty_does_not_write_immediately() {
+        let t0 = Utc.with_ymd_and_hms(2026, 5, 18, 12, 0, 0).unwrap();
+        let clock = Arc::new(MutableClock::new(t0));
+        let mut app = app_with_clock(Arc::clone(&clock));
+        app.study.progress_mut().active_course_id = Some("c1".into());
+
+        app.mark_progress_dirty();
+
+        assert!(
+            !app.data_paths.progress_file.exists(),
+            "mark_progress_dirty must not write to disk"
+        );
+    }
+
+    #[test]
+    fn dirty_progress_flushes_after_30s_via_tick() {
+        let t0 = Utc.with_ymd_and_hms(2026, 5, 18, 12, 0, 0).unwrap();
+        let clock = Arc::new(MutableClock::new(t0));
+        let mut app = app_with_clock(Arc::clone(&clock));
+        app.study.progress_mut().active_course_id = Some("c1".into());
+        app.mark_progress_dirty();
+
+        clock.advance(Duration::milliseconds(29_999));
+        app.on_tick();
+        assert!(
+            !app.data_paths.progress_file.exists(),
+            "within 30s debounce window, no write yet"
+        );
+
+        clock.advance(Duration::milliseconds(2));
+        app.on_tick();
+        assert!(
+            app.data_paths.progress_file.exists(),
+            "past 30s, dirty progress must be flushed"
+        );
+    }
+
+    #[test]
+    fn flush_all_now_writes_immediately_regardless_of_timer() {
+        let t0 = Utc.with_ymd_and_hms(2026, 5, 18, 12, 0, 0).unwrap();
+        let clock = Arc::new(MutableClock::new(t0));
+        let mut app = app_with_clock(Arc::clone(&clock));
+        app.study.progress_mut().active_course_id = Some("c1".into());
+        app.mark_progress_dirty();
+
+        app.flush_all_now();
+
+        assert!(
+            app.data_paths.progress_file.exists(),
+            "flush_all_now must write regardless of debounce timer"
+        );
+    }
+
+    #[test]
+    fn keypress_does_not_consume_toast() {
+        let t0 = Utc.with_ymd_and_hms(2026, 5, 18, 12, 0, 0).unwrap();
+        let clock = Arc::new(MutableClock::new(t0));
+        let mut app = app_with_clock(Arc::clone(&clock));
+        app.set_toast("stage 1 cleared ✓".into());
+
+        let key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::empty());
+        app.on_input(crossterm::event::Event::Key(key));
+
+        assert_eq!(
+            app.info_banner.as_deref(),
+            Some("stage 1 cleared ✓"),
+            "toast must survive a keypress; the key should NOT be swallowed to dismiss it"
         );
     }
 }
