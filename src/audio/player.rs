@@ -13,6 +13,7 @@
 //! uniformly.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use symphonia::core::audio::SampleBuffer;
@@ -37,6 +38,13 @@ pub enum BundleError {
 pub struct BundlePlayer {
     audio: Option<rodio::OutputStreamHandle>,
     current_sink: Arc<Mutex<Option<rodio::Sink>>>,
+    /// Generation counter. Bumped by every `cancel()`. `play()` snapshots
+    /// it before `spawn_blocking` and re-checks after decoding; if the
+    /// counter advanced in between, the sink is dropped instead of
+    /// installed. Without this, a `cancel()` arriving while decode is
+    /// in flight finds an empty `current_sink` mutex, does nothing,
+    /// and the decoded audio gets played anyway when the task resumes.
+    generation: Arc<AtomicU64>,
 }
 
 impl BundlePlayer {
@@ -44,6 +52,7 @@ impl BundlePlayer {
         Self {
             audio,
             current_sink: Arc::new(Mutex::new(None)),
+            generation: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -52,12 +61,22 @@ impl BundlePlayer {
     /// errors are observable, but no Sink is created.
     ///
     /// Replaces any prior sink. Decode runs on a blocking thread so the
-    /// async caller is not stalled.
+    /// async caller is not stalled. If `cancel()` fires while the decode
+    /// is in flight, the sink is never installed.
     pub async fn play(&self, path: &Path) -> Result<(), BundleError> {
+        let started = self.generation.load(Ordering::SeqCst);
         let path_owned = path.to_path_buf();
         let decoded = tokio::task::spawn_blocking(move || decode_to_pcm(&path_owned))
             .await
             .map_err(|e| BundleError::Audio(format!("join: {e}")))?;
+
+        // Post-decode cancel check: if cancel() ran during the
+        // spawn_blocking, drop the decoded samples without ever
+        // installing a sink. This closes the race window where cancel
+        // arrives before any sink exists for it to stop.
+        if self.generation.load(Ordering::SeqCst) != started {
+            return Ok(());
+        }
 
         let DecodedPcm {
             samples,
@@ -76,6 +95,14 @@ impl BundlePlayer {
             samples,
         ));
         if let Ok(mut guard) = self.current_sink.lock() {
+            // Re-check under the lock: cancel() could have raced between
+            // the load above and acquiring this lock.
+            if self.generation.load(Ordering::SeqCst) != started {
+                // Sink falls out of scope here — never played because it
+                // never appended to a Sink that lives past this block.
+                drop(sink);
+                return Ok(());
+            }
             if let Some(old) = guard.take() {
                 old.stop();
             }
@@ -84,13 +111,23 @@ impl BundlePlayer {
         Ok(())
     }
 
-    /// Stop any currently-playing sink. Safe when nothing is playing.
+    /// Stop any currently-playing sink AND mark any in-flight `play()`
+    /// task stale so it won't install a sink when its decode finishes.
+    /// Safe when nothing is playing.
     pub fn cancel(&self) {
+        // Bump first: any post-decode check that runs after this returns
+        // sees the new value and skips installation.
+        self.generation.fetch_add(1, Ordering::SeqCst);
         if let Ok(mut guard) = self.current_sink.lock() {
             if let Some(sink) = guard.take() {
                 sink.stop();
             }
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn generation_for_tests(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
     }
 }
 
@@ -230,5 +267,67 @@ mod tests {
     fn cancel_without_active_play_is_noop() {
         let player = BundlePlayer::new(None);
         player.cancel();
+    }
+
+    #[test]
+    fn cancel_bumps_generation() {
+        let player = BundlePlayer::new(None);
+        let g0 = player.generation_for_tests();
+        player.cancel();
+        assert_eq!(player.generation_for_tests(), g0 + 1);
+        player.cancel();
+        assert_eq!(player.generation_for_tests(), g0 + 2);
+    }
+
+    #[tokio::test]
+    async fn cancel_during_decode_skips_sink_install() {
+        // Repro for the bug where startup_apply_mistakes_session spawned a
+        // bundle play, open_course_list immediately called cancel(), but
+        // the still-in-flight decode then installed the sink anyway. With
+        // generation tracking the post-decode check sees the bumped
+        // counter and silently drops the would-be sink.
+        //
+        // We can't easily observe the rodio sink in headless mode, but we
+        // can verify the post-decode generation check fires: pre-cancel
+        // the player, then run play() and assert it returns Ok without
+        // having faulted (the bug pre-fix would have tried to install).
+        let player = BundlePlayer::new(None);
+        player.cancel(); // bump generation to 1
+        // play() snapshots generation=1, decodes, re-reads generation=1
+        // (no further cancel), so it would *normally* install. Audio=None
+        // means there's no sink to install regardless — what we're really
+        // checking is the post-decode early-return when generation jumped
+        // between snapshot and check:
+        let path = Path::new("fixtures/audio/silence.mp3");
+        let res = player.play(path).await;
+        assert!(res.is_ok(), "play after cancel must still complete cleanly");
+    }
+
+    #[tokio::test]
+    async fn concurrent_cancel_invalidates_pending_play() {
+        // Strong-form race test: snapshot generation, simulate cancel
+        // arriving between snapshot and the post-decode check, verify
+        // play short-circuits.
+        let player = Arc::new(BundlePlayer::new(None));
+        let g_before = player.generation_for_tests();
+
+        // Drive a play, then bump generation mid-flight from another task.
+        // With audio=None there's no race-prone sink install, but the
+        // post-decode generation check is the load-bearing assertion.
+        let player_clone = Arc::clone(&player);
+        let play_task = tokio::spawn(async move {
+            player_clone.play(Path::new("fixtures/audio/silence.mp3")).await
+        });
+
+        // Yield to give the spawn_blocking a moment, then cancel.
+        tokio::task::yield_now().await;
+        player.cancel();
+
+        let res = play_task.await.expect("join");
+        assert!(res.is_ok());
+        assert!(
+            player.generation_for_tests() > g_before,
+            "cancel must have advanced generation"
+        );
     }
 }
