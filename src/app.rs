@@ -588,6 +588,13 @@ impl App {
     pub fn open_course_list(&mut self) {
         use crate::storage::course::list_courses;
         use crate::ui::course_list::CourseListState;
+        // Silence any in-flight audio: the list overlay has no current drill
+        // and a previously-spawned bundle/TTS task would otherwise keep
+        // playing under it. Critical at startup, where mistakes-session
+        // entry spawns audio just before this overlay can open on a
+        // fully-mastered active course.
+        self.speaker.cancel();
+        self.bundle_player.cancel();
         let metas = list_courses(&self.data_paths.courses_dir).unwrap_or_default();
         self.course_list = Some(CourseListState::new(metas, self.study.progress()));
         self.screen = Screen::CourseList;
@@ -2570,4 +2577,102 @@ mod toast_tests {
             "toast must survive a keypress; the key should NOT be swallowed to dismiss it"
         );
     }
+}
+
+#[cfg(test)]
+mod audio_cancel_on_view_change_tests {
+    //! Regression: `open_course_list` used to leave in-flight `Speaker` /
+    //! `BundlePlayer` tasks alone. The startup path made this visible —
+    //! `App::new` calls `startup_apply_mistakes_session` (which spawns
+    //! audio for the first review drill via `enter_mistakes_mode_at_current_drill`)
+    //! and then immediately `maybe_open_course_list_at_startup`. The user
+    //! lands on the picker and hears a sentence from a drill that isn't on
+    //! screen.
+    //!
+    //! Fix: cancel both audio sinks before switching to `Screen::CourseList`.
+    //! Tests use a `RecordingSpeaker` that counts `cancel()` calls so the
+    //! invariant is verifiable without touching real audio hardware.
+    use super::*;
+    use crate::clock::Clock;
+    use crate::config::Config;
+    use crate::storage::mistakes::MistakeBook;
+    use crate::storage::paths::DataPaths;
+    use crate::storage::progress::Progress;
+    use crate::tts::speaker::{Speaker, TtsError};
+    use chrono::{DateTime, TimeZone, Utc};
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::Arc;
+
+    struct FixedClock(DateTime<Utc>);
+    impl Clock for FixedClock {
+        fn now(&self) -> DateTime<Utc> {
+            self.0
+        }
+    }
+
+    struct RecordingSpeaker {
+        cancels: AtomicU32,
+    }
+    impl RecordingSpeaker {
+        fn new() -> Self {
+            Self {
+                cancels: AtomicU32::new(0),
+            }
+        }
+        fn cancel_count(&self) -> u32 {
+            self.cancels.load(Ordering::SeqCst)
+        }
+    }
+    #[async_trait::async_trait]
+    impl Speaker for RecordingSpeaker {
+        async fn speak(&self, _text: &str) -> Result<(), TtsError> {
+            Ok(())
+        }
+        fn cancel(&self) {
+            self.cancels.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    fn make_app(speaker: Arc<RecordingSpeaker>) -> App {
+        let (task_tx, _rx) = tokio::sync::mpsc::channel(8);
+        let tmp = tempfile::tempdir().unwrap().keep();
+        let data_paths = DataPaths::for_tests(tmp);
+        let bundle_player = Arc::new(crate::audio::player::BundlePlayer::new(None));
+        let clock = Arc::new(FixedClock(
+            Utc.with_ymd_and_hms(2026, 5, 19, 12, 0, 0).unwrap(),
+        )) as Arc<dyn Clock>;
+        App::new(
+            None,
+            Progress::default(),
+            data_paths,
+            clock,
+            Config::default(),
+            MistakeBook::default(),
+            None,
+            task_tx,
+            speaker as Arc<dyn Speaker>,
+            bundle_player,
+        )
+    }
+
+    #[test]
+    fn open_course_list_cancels_in_flight_audio() {
+        let speaker = Arc::new(RecordingSpeaker::new());
+        let mut app = make_app(Arc::clone(&speaker));
+        let before = speaker.cancel_count();
+
+        app.open_course_list();
+
+        assert!(
+            speaker.cancel_count() > before,
+            "open_course_list must cancel the Speaker so a previously-spawned \
+             TTS task can't bleed audio into the list overlay"
+        );
+    }
+
+    // BundlePlayer cancellation is verified by code review (the
+    // implementation calls `bundle_player.cancel()` on the same line as
+    // `speaker.cancel()`); it's a concrete type, not a trait, so the
+    // observable behaviour test for the Speaker side is the practical
+    // coverage we can express here.
 }
