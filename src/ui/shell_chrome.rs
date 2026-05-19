@@ -242,7 +242,8 @@ pub fn build_status_line_with_mistakes(
     summary: Option<ProgressSummary>,
     badge: Option<MistakesBadge>,
 ) -> Line<'static> {
-    let style = Style::default().fg(Color::Yellow);
+    let badge_style = Style::default().fg(Color::Yellow);
+    let hint_style = Style::default().fg(Color::DarkGray);
     if let Some(b) = badge {
         let label = format!(
             "Review · R{}/{} · {}/{} · ({}/{})",
@@ -253,12 +254,38 @@ pub fn build_status_line_with_mistakes(
             b.streak_days,
             b.streak_target,
         );
-        let pad = (width as usize).saturating_sub(label.chars().count());
-        let mut spans = vec![Span::styled(label, style)];
-        if pad > 0 {
-            spans.push(Span::raw(" ".repeat(pad)));
+        let label_len = label.chars().count();
+        let hint_len = RIGHT_HINTS.chars().count();
+        let width_u = width as usize;
+
+        // Pass 1: label + 2-space gap + right hints all fit.
+        if label_len + 2 + hint_len <= width_u {
+            let pad = width_u - label_len - hint_len;
+            return Line::from(vec![
+                Span::styled(label, badge_style),
+                Span::styled(" ".repeat(pad), hint_style),
+                Span::styled(RIGHT_HINTS, hint_style),
+            ]);
         }
-        return Line::from(spans);
+        // Pass 2: badge fits alone (right hints don't fit). Badge wins —
+        // the progress read is what the user is reviewing against.
+        if label_len <= width_u {
+            let pad = width_u - label_len;
+            return Line::from(vec![
+                Span::styled(label, badge_style),
+                Span::styled(" ".repeat(pad), hint_style),
+            ]);
+        }
+        // Pass 3: badge doesn't fit either. Show right hints if there's room.
+        if hint_len <= width_u {
+            let pad = width_u - hint_len;
+            return Line::from(vec![
+                Span::styled(" ".repeat(pad), hint_style),
+                Span::styled(RIGHT_HINTS, hint_style),
+            ]);
+        }
+        // Pass 4: nothing fits, blank.
+        return Line::from(vec![Span::styled(" ".repeat(width_u), hint_style)]);
     }
     build_status_line(width, course_id, summary)
 }
@@ -267,10 +294,9 @@ pub fn build_status_line_with_mistakes(
 mod mistakes_top_bar_tests {
     use super::*;
 
-    #[test]
-    fn mistakes_badge_shows_round_and_progress() {
+    fn render_badge(width: u16) -> String {
         let line = build_status_line_with_mistakes(
-            80,
+            width,
             Some("course-x"),
             None,
             Some(MistakesBadge {
@@ -282,8 +308,46 @@ mod mistakes_top_bar_tests {
                 streak_target: 3,
             }),
         );
-        let s: String = line.spans.iter().map(|sp| sp.content.to_string()).collect();
+        line.spans.iter().map(|sp| sp.content.to_string()).collect()
+    }
+
+    #[test]
+    fn mistakes_badge_shows_round_and_progress() {
+        let s = render_badge(80);
         assert!(s.contains("Review · R1/2 · 4/12 · (2/3)"));
+    }
+
+    #[test]
+    fn mistakes_badge_keeps_right_hints_at_normal_width() {
+        // Regression: mistakes mode used to pad the badge to the full row
+        // and drop the right-side `^P menu  ^C quit` hints, leaving the
+        // user without a visible reminder of how to open the palette while
+        // a review session was active.
+        let s = render_badge(80);
+        assert!(
+            s.contains("^P menu") && s.contains("^C quit"),
+            "mistakes status bar must keep right-side key hints at normal width, got: {s:?}"
+        );
+        assert!(
+            s.contains("Review · R1/2 · 4/12 · (2/3)"),
+            "and the badge itself is still there"
+        );
+    }
+
+    #[test]
+    fn mistakes_badge_drops_right_hints_when_too_narrow_for_both() {
+        // When the row can't hold "<badge> <pad> <hints>", the badge wins —
+        // it's the progress read the user is reviewing against. Same
+        // tiebreaker Course mode uses.
+        let badge = "Review · R1/2 · 4/12 · (2/3)";
+        let badge_len = badge.chars().count() as u16;
+        // Width = exactly the badge length: no room for hints + 2-space gap.
+        let s = render_badge(badge_len);
+        assert!(s.contains(badge));
+        assert!(
+            !s.contains("^P"),
+            "right hints must drop when there's no room for both, got: {s:?}"
+        );
     }
 }
 
