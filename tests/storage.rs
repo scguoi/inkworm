@@ -24,24 +24,56 @@ mod paths {
 
     #[test]
     #[serial]
-    fn resolve_uses_xdg_config_home_when_set() {
-        let env = TestEnv::new();
-        let xdg_base = env.home.join("xdg");
+    fn resolve_falls_back_to_home_documents_inkworm() {
         std::env::remove_var("INKWORM_HOME");
-        std::env::set_var("XDG_CONFIG_HOME", &xdg_base);
         let paths = DataPaths::resolve(None).expect("resolve");
-        assert_eq!(paths.root, xdg_base.join("inkworm"));
-        std::env::remove_var("XDG_CONFIG_HOME");
+        assert!(paths.root.ends_with("Documents/InkWorm"));
     }
 
     #[test]
     #[serial]
-    fn resolve_falls_back_to_xdg_then_home() {
+    fn resolve_default_splits_volatile_paths_outside_icloud() {
+        // Default layout splits write-heavy / disposable paths out of the
+        // iCloud-synced Documents tree so each keystroke-driven save does
+        // not trigger a sync upload.
+        let env = TestEnv::new();
         std::env::remove_var("INKWORM_HOME");
-        std::env::remove_var("XDG_CONFIG_HOME");
-        // Returns a real path ending in "inkworm" from HOME fallback.
+        std::env::set_var("HOME", &env.home);
         let paths = DataPaths::resolve(None).expect("resolve");
-        assert!(paths.root.ends_with("inkworm"));
+
+        assert_eq!(paths.root, env.home.join("Documents").join("InkWorm"));
+        assert_eq!(
+            paths.progress_file,
+            env.home.join("Documents/InkWorm/progress.json")
+        );
+        assert_eq!(
+            paths.log_file,
+            env.home.join("Library/Logs/InkWorm/inkworm.log")
+        );
+        assert_eq!(
+            paths.lock_file,
+            env.home.join(".cache/inkworm/inkworm.lock")
+        );
+        assert_eq!(
+            paths.tts_cache_dir,
+            env.home.join(".cache/inkworm/tts-cache")
+        );
+        assert_eq!(paths.failed_dir, env.home.join(".cache/inkworm/failed"));
+    }
+
+    #[test]
+    #[serial]
+    fn resolve_inkworm_home_keeps_all_paths_under_root() {
+        // INKWORM_HOME is the isolation knob (smoke runs / tests) — every
+        // file lives under the override root, no path splitting.
+        let env = TestEnv::new();
+        std::env::set_var("INKWORM_HOME", &env.home);
+        let paths = DataPaths::resolve(None).expect("resolve");
+        assert_eq!(paths.log_file, env.home.join("inkworm.log"));
+        assert_eq!(paths.lock_file, env.home.join("inkworm.lock"));
+        assert_eq!(paths.tts_cache_dir, env.home.join("tts-cache"));
+        assert_eq!(paths.failed_dir, env.home.join("failed"));
+        std::env::remove_var("INKWORM_HOME");
     }
 
     #[test]

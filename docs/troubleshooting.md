@@ -115,5 +115,5 @@ courses/2026-05/06-ai-work.json
 日志路径会复制到剪贴板。默认日志文件：
 
 ```text
-~/.config/inkworm/inkworm.log
+~/Documents/InkWorm/inkworm.log
 ```

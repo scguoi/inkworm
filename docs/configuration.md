@@ -3,15 +3,14 @@
 inkworm 使用 TOML 配置文件。默认位置：
 
 ```text
-~/.config/inkworm/config.toml
+~/Documents/InkWorm/config.toml
 ```
 
 路径优先级从高到低：
 
 1. `inkworm --config <path>`
 2. `INKWORM_HOME`
-3. `XDG_CONFIG_HOME/inkworm`
-4. `~/.config/inkworm`
+3. `~/Documents/InkWorm`
 
 ## 示例
 

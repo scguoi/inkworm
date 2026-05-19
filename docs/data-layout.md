@@ -3,7 +3,7 @@
 inkworm 的数据默认放在：
 
 ```text
-~/.config/inkworm
+~/Documents/InkWorm
 ```
 
 也可以用 `INKWORM_HOME` 或 `inkworm --config <path>` 指定。

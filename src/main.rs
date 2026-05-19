@@ -13,8 +13,15 @@ use inkworm::ui::config_wizard::WizardOrigin;
 use inkworm::ui::event::run_loop;
 use inkworm::ui::terminal::{install_panic_hook, TerminalGuard};
 
-fn init_tracing(log_dir: &std::path::Path) {
-    let file_appender = tracing_appender::rolling::never(log_dir, "inkworm.log");
+fn init_tracing(log_file: &std::path::Path) {
+    let dir = log_file
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let filename = log_file
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("inkworm.log");
+    let file_appender = tracing_appender::rolling::never(dir, filename);
     let env_filter = tracing_subscriber::EnvFilter::try_from_env("INKWORM_LOG")
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     tracing_subscriber::fmt()
@@ -63,7 +70,7 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    init_tracing(&paths.root);
+    init_tracing(&paths.log_file);
     tracing::info!("inkworm starting");
 
     let (config, needs_wizard) = match Config::load(&paths.config_file) {
