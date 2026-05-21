@@ -116,6 +116,14 @@ pub struct App {
     /// fights an explicit intent.
     complete_auto_switch_started_at: Option<chrono::DateTime<chrono::Utc>>,
     complete_auto_switch_cancelled: bool,
+    /// True iff the currently-active mistakes session was auto-launched by
+    /// `startup_apply_mistakes_session` (app open or midnight rollover),
+    /// not by an explicit `/mistakes` invocation. When the session ends
+    /// naturally, this picks "open course list" over "drop back into the
+    /// active course": after morning review the user usually wants to
+    /// choose a course, not be funneled into yesterday's last one.
+    /// Reset on /mistakes (explicit) and on natural session end.
+    mistakes_session_auto_launched: bool,
 }
 
 impl App {
@@ -176,6 +184,7 @@ impl App {
             prewarm_state: None,
             complete_auto_switch_started_at: None,
             complete_auto_switch_cancelled: false,
+            mistakes_session_auto_launched: false,
         };
         app.startup_apply_mistakes_session();
         app.maybe_open_course_list_at_startup();
@@ -214,6 +223,12 @@ impl App {
         self.mistakes.ensure_session(today);
         if self.mistakes.peek_current_drill().is_some() {
             self.enter_mistakes_mode_at_current_drill();
+            // Mark only if we actually landed in Mistakes mode — orphan
+            // pruning in `enter_mistakes_mode_at_current_drill` can purge
+            // the whole queue and leave us in Course mode.
+            if matches!(self.study.mode(), StudyMode::Mistakes) {
+                self.mistakes_session_auto_launched = true;
+            }
         }
         self.mark_mistakes_dirty();
         self.flush_all_now();
@@ -701,19 +716,37 @@ impl App {
             self.mark_mistakes_dirty();
             if self.mistakes.peek_current_drill().is_some() {
                 self.enter_mistakes_mode_at_current_drill();
+                self.speak_current_drill();
             } else {
-                // Session finished: a critical boundary, flush both books
-                // so a crash on the user's next keystroke can't lose state.
-                self.flush_all_now();
-                self.set_toast(MISTAKES_DONE_BANNER.into());
-                self.enter_course_mode();
+                self.finish_mistakes_session();
             }
-            self.speak_current_drill();
         } else {
             if self.study.auto_advance_if_due(now) {
                 self.mark_progress_dirty();
                 self.speak_current_drill();
             }
+        }
+    }
+
+    /// Mistakes queue is exhausted. Flushes the day's verdicts, shows the
+    /// done banner, and either drops back into the active course (default)
+    /// or pops the course list — the latter when the session was
+    /// auto-launched at startup, so the user picks what to study next
+    /// instead of falling into yesterday's last course.
+    fn finish_mistakes_session(&mut self) {
+        // Critical boundary: flush both books so a crash on the user's
+        // next keystroke can't lose state.
+        self.flush_all_now();
+        self.set_toast(MISTAKES_DONE_BANNER.into());
+        let was_auto = std::mem::replace(&mut self.mistakes_session_auto_launched, false);
+        self.enter_course_mode();
+        if was_auto {
+            // `open_course_list` already cancels Speaker + BundlePlayer, so
+            // skip `speak_current_drill` — speaking the active course's
+            // first drill under a list overlay is pure noise.
+            self.open_course_list();
+        } else {
+            self.speak_current_drill();
         }
     }
 
@@ -987,15 +1020,14 @@ impl App {
                         self.mark_mistakes_dirty();
                         if self.mistakes.peek_current_drill().is_some() {
                             self.enter_mistakes_mode_at_current_drill();
+                            self.speak_current_drill();
                         } else {
-                            self.flush_all_now();
-                            self.set_toast(MISTAKES_DONE_BANNER.into());
-                            self.enter_course_mode();
+                            self.finish_mistakes_session();
                         }
                     } else {
                         self.study.skip();
+                        self.speak_current_drill();
                     }
-                    self.speak_current_drill();
                 }
                 _ => {}
             },
@@ -1291,6 +1323,11 @@ impl App {
                 self.mark_mistakes_dirty();
                 self.flush_all_now();
                 if self.mistakes.peek_current_drill().is_some() {
+                    // Explicit invocation: when this session ends, drop back
+                    // into the course the user was already studying — they
+                    // chose to interrupt themselves, don't punt them to the
+                    // picker.
+                    self.mistakes_session_auto_launched = false;
                     self.enter_mistakes_mode_at_current_drill();
                     self.speak_current_drill();
                 } else {
@@ -2675,4 +2712,184 @@ mod audio_cancel_on_view_change_tests {
     // `speaker.cancel()`); it's a concrete type, not a trait, so the
     // observable behaviour test for the Speaker side is the practical
     // coverage we can express here.
+}
+
+#[cfg(test)]
+mod mistakes_finish_routing_tests {
+    //! When the auto-launched morning review ends, the user should land on
+    //! the course list — not be silently funneled back into yesterday's
+    //! active course. Explicit `/mistakes` invocation keeps the old
+    //! "return to the course I was studying" behaviour, since the user
+    //! interrupted themselves and probably wants to resume.
+    use super::*;
+    use crate::clock::Clock;
+    use crate::config::Config;
+    use crate::storage::course::{save_course, Course};
+    use crate::storage::mistakes::{DrillRef, MistakeBook, MistakeEntry, SessionState};
+    use crate::storage::paths::DataPaths;
+    use crate::storage::progress::Progress;
+    use crate::tts::speaker::{Speaker, TtsError};
+    use chrono::{DateTime, TimeZone, Utc};
+    use std::sync::Arc;
+
+    struct FixedClock(DateTime<Utc>);
+    impl Clock for FixedClock {
+        fn now(&self) -> DateTime<Utc> {
+            self.0
+        }
+    }
+
+    struct NoopSpeaker;
+    #[async_trait::async_trait]
+    impl Speaker for NoopSpeaker {
+        async fn speak(&self, _text: &str) -> Result<(), TtsError> {
+            Ok(())
+        }
+        fn cancel(&self) {}
+    }
+
+    fn minimal_course() -> Course {
+        let json = include_str!("../fixtures/courses/good/minimal.json");
+        serde_json::from_str(json).unwrap()
+    }
+
+    fn drill_ref(course: &Course) -> DrillRef {
+        let s = &course.sentences[0];
+        DrillRef {
+            course_id: course.id.clone(),
+            sentence_order: s.order,
+            drill_stage: s.drills[0].stage,
+        }
+    }
+
+    fn build_app(course: Course, mistakes: MistakeBook, now: DateTime<Utc>) -> App {
+        let (task_tx, _rx) = tokio::sync::mpsc::channel(8);
+        let tmp = tempfile::tempdir().unwrap().keep();
+        let data_paths = DataPaths::for_tests(tmp);
+        save_course(&data_paths.courses_dir, &course).unwrap();
+        let bundle_player = Arc::new(crate::audio::player::BundlePlayer::new(None));
+        let mut progress = Progress::empty();
+        progress.active_course_id = Some(course.id.clone());
+        App::new(
+            Some(course),
+            progress,
+            data_paths,
+            Arc::new(FixedClock(now)) as Arc<dyn Clock>,
+            Config::default(),
+            mistakes,
+            None,
+            task_tx,
+            Arc::new(NoopSpeaker) as Arc<dyn Speaker>,
+            bundle_player,
+        )
+    }
+
+    /// MistakeBook with a single entry + an in-progress session whose queue
+    /// holds that one drill. Used so `startup_apply_mistakes_session` will
+    /// auto-pop the session at App::new.
+    fn book_with_one_drill(drill: DrillRef, today: chrono::NaiveDate) -> MistakeBook {
+        let mut book = MistakeBook::empty();
+        book.entries.push(MistakeEntry {
+            drill: drill.clone(),
+            entered_at: Utc::now(),
+            streak_days: 0,
+            last_qualified_date: None,
+            today: None,
+        });
+        book.session = Some(SessionState {
+            started_on: today,
+            queue: vec![drill],
+            current_round: 2,
+            next_index: 0,
+            round1_completed: true,
+        });
+        book
+    }
+
+    #[test]
+    fn auto_launched_session_finishes_into_course_list() {
+        let now = Utc.with_ymd_and_hms(2026, 5, 21, 9, 0, 0).unwrap();
+        let today = now.date_naive();
+        let course = minimal_course();
+        let book = book_with_one_drill(drill_ref(&course), today);
+        let mut app = build_app(course, book, now);
+
+        // Startup auto-launched the review and set the flag.
+        assert!(
+            matches!(app.study.mode(), StudyMode::Mistakes),
+            "startup should drop the user into Mistakes mode"
+        );
+        assert!(
+            app.mistakes_session_auto_launched,
+            "auto-launched session must mark the flag so finish routes to list"
+        );
+
+        // Simulate the queue draining: advance past the last drill and
+        // invoke the same exit path tick_advance/Tab would.
+        app.mistakes.advance_session();
+        assert!(
+            app.mistakes.peek_current_drill().is_none(),
+            "test precondition: queue must be exhausted before calling finish"
+        );
+        app.finish_mistakes_session();
+
+        assert!(
+            matches!(app.screen, Screen::CourseList),
+            "auto-launched review end must open the course list, not Study"
+        );
+        assert!(app.course_list.is_some());
+        assert!(
+            !app.mistakes_session_auto_launched,
+            "flag must reset after finish so the next /mistakes call isn't sticky"
+        );
+    }
+
+    #[test]
+    fn explicit_mistakes_command_finishes_back_into_study() {
+        // No auto-launch at startup — book is empty. User then invokes
+        // /mistakes mid-day after a fresh wrong-attempt enrolled a drill;
+        // simulate by injecting the entry and dispatching the command.
+        let now = Utc.with_ymd_and_hms(2026, 5, 21, 14, 0, 0).unwrap();
+        let course = minimal_course();
+        let drill = drill_ref(&course);
+        let mut app = build_app(course, MistakeBook::empty(), now);
+        assert!(
+            !matches!(app.study.mode(), StudyMode::Mistakes),
+            "empty book → no auto-launch"
+        );
+
+        app.mistakes.entries.push(MistakeEntry {
+            drill: drill.clone(),
+            entered_at: Utc::now(),
+            streak_days: 0,
+            last_qualified_date: None,
+            today: None,
+        });
+        let cmd = crate::ui::palette::COMMANDS
+            .iter()
+            .find(|c| c.name == "mistakes")
+            .expect("`mistakes` command must exist in the palette table");
+        app.execute_command(cmd, &[]);
+        assert!(
+            matches!(app.study.mode(), StudyMode::Mistakes),
+            "/mistakes must enter Mistakes mode"
+        );
+        assert!(
+            !app.mistakes_session_auto_launched,
+            "explicit /mistakes must NOT set the auto-launched flag"
+        );
+
+        app.mistakes.advance_session();
+        // ensure_session_force starts at round 1 — drain through round 2.
+        while app.mistakes.peek_current_drill().is_some() {
+            app.mistakes.advance_session();
+        }
+        app.finish_mistakes_session();
+
+        assert!(
+            matches!(app.screen, Screen::Study),
+            "explicit /mistakes end must return to Study, not the picker"
+        );
+        assert!(app.course_list.is_none());
+    }
 }
