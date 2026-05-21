@@ -195,20 +195,24 @@ fn format_row(item: &CourseListItem, active: bool, selected: bool, width: u16) -
     let over_learned = item.is_over_learned();
     let completion_mark = format!("  ✓{}", item.completion_count);
 
-    // Over-learned, non-active, non-selected courses dim down. Selected
-    // (Yellow) and active (Green) still win for visibility — the bottom
-    // position + trailing ✓ remain as the over-learned signal.
-    let base_style = if selected {
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD)
-    } else if active {
-        Style::default().fg(Color::Green)
+    // The foreground encodes status (Green = active, DarkGray = over-learned,
+    // White = fresh) — selection must NOT repaint it, otherwise ↑↓ erases the
+    // signal as the cursor moves. Selection is shown via REVERSED + BOLD on
+    // top of the status fg, so the row still carries its hue (just inverted)
+    // and stands out clearly.
+    let status_fg = if active {
+        Color::Green
     } else if over_learned {
-        Style::default().fg(Color::DarkGray)
+        Color::DarkGray
     } else {
-        Style::default().fg(Color::White)
+        Color::White
     };
+    let mut base_style = Style::default().fg(status_fg);
+    let mut trailing_style = Style::default().fg(Color::DarkGray);
+    if selected {
+        base_style = base_style.add_modifier(Modifier::REVERSED | Modifier::BOLD);
+        trailing_style = trailing_style.add_modifier(Modifier::REVERSED | Modifier::BOLD);
+    }
 
     let reserved = (marker.chars().count()
         + progress_txt.chars().count()
@@ -232,12 +236,9 @@ fn format_row(item: &CourseListItem, active: bool, selected: bool, width: u16) -
             format!("{marker}{shown_title}{}  ", " ".repeat(pad)),
             base_style,
         ),
-        Span::styled(
-            format!("{progress_txt}  "),
-            Style::default().fg(Color::DarkGray),
-        ),
-        Span::styled(date_txt, Style::default().fg(Color::DarkGray)),
-        Span::styled(completion_mark, Style::default().fg(Color::DarkGray)),
+        Span::styled(format!("{progress_txt}  "), trailing_style),
+        Span::styled(date_txt, trailing_style),
+        Span::styled(completion_mark, trailing_style),
     ])
 }
 
@@ -686,5 +687,80 @@ mod tests {
         let mut term = Terminal::new(backend).unwrap();
         let state = CourseListState::new(vec![], &Progress::empty());
         term.draw(|f| render_course_list(f, &state)).unwrap();
+    }
+
+    /// Walk the rendered buffer and return the style of the first cell whose
+    /// symbol equals `needle`. Used by the selection-color tests below.
+    fn find_cell_style(
+        term: &ratatui::Terminal<ratatui::backend::TestBackend>,
+        needle: &str,
+    ) -> (Color, Color, Modifier) {
+        let buf = term.backend().buffer();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                let cell = buf.cell((x, y)).expect("cell in range");
+                if cell.symbol() == needle {
+                    return (cell.fg, cell.bg, cell.modifier);
+                }
+            }
+        }
+        panic!("symbol {needle:?} not found in rendered buffer");
+    }
+
+    #[test]
+    fn selected_row_preserves_active_status_color() {
+        // ↑↓ in the course list used to repaint the selected row Yellow, which
+        // masked the status colors (Green = active, DarkGray = over-learned,
+        // White = fresh). Selection must now be shown via REVERSED on top of
+        // the status fg — the hue is the signal, cursor position must not
+        // override it.
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let backend = TestBackend::new(80, 10);
+        let mut term = Terminal::new(backend).unwrap();
+        let metas = vec![meta("a", (2026, 4, 10))];
+        let mut p = Progress::empty();
+        p.active_course_id = Some("a".into());
+        let state = CourseListState::new(metas, &p);
+        term.draw(|f| render_course_list(f, &state)).unwrap();
+        // The active marker "▸" lives on the selected, active row.
+        let (fg, _bg, modifier) = find_cell_style(&term, "▸");
+        assert_eq!(
+            fg,
+            Color::Green,
+            "selected active row must keep Green fg, not be repainted Yellow"
+        );
+        assert!(
+            modifier.contains(Modifier::REVERSED),
+            "selection should be indicated via REVERSED, got modifier: {modifier:?}"
+        );
+    }
+
+    #[test]
+    fn selected_over_learned_row_stays_dim() {
+        // Over-learned rows render in DarkGray to signal "spend time
+        // elsewhere". Selecting one must not boost it to Yellow — the dim
+        // hue is the whole point of the over-learned signal.
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let backend = TestBackend::new(80, 10);
+        let mut term = Terminal::new(backend).unwrap();
+        let metas = vec![meta("over", (2026, 4, 10))];
+        let mut p = Progress::empty();
+        p.course_mut("over").completion_count = OVER_LEARNED_THRESHOLD;
+        let state = CourseListState::new(metas, &p);
+        // Single course, so it ends up selected at index 0.
+        term.draw(|f| render_course_list(f, &state)).unwrap();
+        // "T" from "Title over" — the first char of the rendered title.
+        let (fg, _bg, modifier) = find_cell_style(&term, "T");
+        assert_eq!(
+            fg,
+            Color::DarkGray,
+            "selected over-learned row must stay DarkGray"
+        );
+        assert!(
+            modifier.contains(Modifier::REVERSED),
+            "selection should be indicated via REVERSED, got modifier: {modifier:?}"
+        );
     }
 }
