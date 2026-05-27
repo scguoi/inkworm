@@ -970,6 +970,7 @@ impl App {
                     self.screen = Screen::Palette;
                 }
                 KeyCode::Char('c') => self.quit(),
+                KeyCode::Char('u') => self.study.delete_to_line_start(),
                 _ => {}
             }
             return;
