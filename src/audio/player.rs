@@ -131,13 +131,13 @@ impl BundlePlayer {
     }
 }
 
-struct DecodedPcm {
-    samples: Vec<i16>,
-    sample_rate: u32,
-    channels: u16,
+pub(crate) struct DecodedPcm {
+    pub(crate) samples: Vec<i16>,
+    pub(crate) sample_rate: u32,
+    pub(crate) channels: u16,
 }
 
-fn decode_to_pcm(path: &Path) -> Result<DecodedPcm, BundleError> {
+pub(crate) fn decode_to_pcm(path: &Path) -> Result<DecodedPcm, BundleError> {
     let file = std::fs::File::open(path)?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
