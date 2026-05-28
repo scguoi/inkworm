@@ -176,7 +176,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     let speaker: Arc<dyn inkworm::tts::speaker::Speaker> = Arc::from(build_speaker(
-        &config.tts.iflytek,
+        &config.tts.elevenlabs,
         paths.tts_cache_dir.clone(),
         config.tts.r#override,
         audio_handle.clone(),

@@ -502,10 +502,7 @@ impl App {
     }
 
     fn tts_has_creds(&self) -> bool {
-        let cfg = &self.config.tts.iflytek;
-        !cfg.app_id.trim().is_empty()
-            && !cfg.api_key.trim().is_empty()
-            && !cfg.api_secret.trim().is_empty()
+        !self.config.tts.elevenlabs.api_key.trim().is_empty()
     }
 
     /// Cancel any in-flight speak, then if there is a current drill,
@@ -1796,8 +1793,8 @@ impl App {
         use crate::ui::config_wizard::{probe_tts, TestingState};
         use crate::ui::task_msg::WizardTaskMsg;
 
-        let iflytek = match self.config_wizard.as_ref() {
-            Some(s) => s.draft.tts.iflytek.clone(),
+        let elevenlabs = match self.config_wizard.as_ref() {
+            Some(s) => s.draft.tts.elevenlabs.clone(),
             None => return,
         };
         let cancel = CancellationToken::new();
@@ -1808,7 +1805,7 @@ impl App {
         }
         let task_tx = self.task_tx.clone();
         tokio::spawn(async move {
-            let msg = match probe_tts(iflytek, cancel).await {
+            let msg = match probe_tts(elevenlabs, cancel).await {
                 Ok(()) => WizardTaskMsg::TtsProbeOk,
                 Err(e) => WizardTaskMsg::TtsProbeFailed(e),
             };

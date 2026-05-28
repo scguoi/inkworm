@@ -1,12 +1,11 @@
 //! Speaker trait, error type, and a `NullSpeaker` fallback.
-//! `IflytekSpeaker` lands in Plan 6c.
 
 use std::path::PathBuf;
 
 use async_trait::async_trait;
 use thiserror::Error;
 
-use crate::config::{IflytekConfig, TtsOverride};
+use crate::config::{ElevenLabsConfig, TtsOverride};
 
 #[derive(Debug, Error)]
 pub enum TtsError {
@@ -47,49 +46,45 @@ impl Speaker for NullSpeaker {
 }
 
 /// Build the speaker appropriate for the given config and override.
-/// Plan 6c: returns `IflytekSpeaker` when creds are present and mode ≠ Off;
-/// otherwise `NullSpeaker`. Plan 6d will add the device-auto-detect path.
+/// Returns `ElevenLabsSpeaker` when the API key is set and mode ≠ Off;
+/// otherwise `NullSpeaker`.
 pub fn build_speaker(
-    cfg: &IflytekConfig,
+    cfg: &ElevenLabsConfig,
     cache_dir: PathBuf,
     mode: TtsOverride,
     audio: Option<rodio::OutputStreamHandle>,
 ) -> Box<dyn Speaker> {
-    if mode == TtsOverride::Off || !has_creds(cfg) {
+    if mode == TtsOverride::Off || cfg.api_key.trim().is_empty() {
         return Box::new(NullSpeaker);
     }
-    Box::new(crate::tts::iflytek::IflytekSpeaker::new(
+    Box::new(crate::tts::elevenlabs::ElevenLabsSpeaker::new(
         cfg.clone(),
         cache_dir,
         audio,
     ))
 }
 
-fn has_creds(cfg: &IflytekConfig) -> bool {
-    !cfg.app_id.trim().is_empty()
-        && !cfg.api_key.trim().is_empty()
-        && !cfg.api_secret.trim().is_empty()
+fn has_creds(cfg: &ElevenLabsConfig) -> bool {
+    !cfg.api_key.trim().is_empty()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn empty_iflytek() -> IflytekConfig {
-        IflytekConfig {
-            app_id: String::new(),
+    fn empty_elevenlabs() -> ElevenLabsConfig {
+        ElevenLabsConfig {
             api_key: String::new(),
-            api_secret: String::new(),
-            voice: "x3_catherine".into(),
+            voice_id: "v".into(),
+            model: "m".into(),
         }
     }
 
-    fn full_iflytek() -> IflytekConfig {
-        IflytekConfig {
-            app_id: "app".into(),
-            api_key: "k".into(),
-            api_secret: "s".into(),
-            voice: "x3_catherine".into(),
+    fn full_elevenlabs() -> ElevenLabsConfig {
+        ElevenLabsConfig {
+            api_key: "sk_test".into(),
+            voice_id: "v".into(),
+            model: "m".into(),
         }
     }
 
@@ -106,23 +101,15 @@ mod tests {
     }
 
     #[test]
-    fn has_creds_requires_all_three_nonempty() {
-        let mut cfg = full_iflytek();
-        assert!(has_creds(&cfg));
-        cfg.app_id = "   ".into();
-        assert!(!has_creds(&cfg));
-        cfg = full_iflytek();
-        cfg.api_key.clear();
-        assert!(!has_creds(&cfg));
-        cfg = full_iflytek();
-        cfg.api_secret = "\t".into();
-        assert!(!has_creds(&cfg));
+    fn has_creds_requires_api_key() {
+        assert!(!has_creds(&empty_elevenlabs()));
+        assert!(has_creds(&full_elevenlabs()));
     }
 
     #[tokio::test]
     async fn build_speaker_returns_null_when_mode_off() {
         let b = build_speaker(
-            &full_iflytek(),
+            &full_elevenlabs(),
             PathBuf::from("/tmp/x"),
             TtsOverride::Off,
             None,
@@ -133,29 +120,11 @@ mod tests {
     #[tokio::test]
     async fn build_speaker_returns_null_when_creds_missing() {
         let b = build_speaker(
-            &empty_iflytek(),
+            &empty_elevenlabs(),
             PathBuf::from("/tmp/x"),
             TtsOverride::Auto,
             None,
         );
         assert!(b.speak("x").await.is_ok());
-    }
-
-    #[tokio::test]
-    async fn build_speaker_returns_iflytek_when_creds_present() {
-        let tmp = tempfile::tempdir().unwrap();
-        let b = build_speaker(
-            &full_iflytek(),
-            tmp.path().to_path_buf(),
-            TtsOverride::On,
-            None, // cache-only mode
-        );
-        // Pre-populate the cache for "hello" so speak() hits the cache path
-        // and does not attempt a WS connection to the real iflytek endpoint.
-        let key = crate::tts::cache::cache_key("hello", "x3_catherine");
-        let path = crate::tts::cache::cache_path(tmp.path(), &key);
-        crate::tts::wav::write_wav_atomic(&path, &[0, 0]).unwrap();
-        let res = b.speak("hello").await;
-        assert!(res.is_ok(), "{res:?}");
     }
 }

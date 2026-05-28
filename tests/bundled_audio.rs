@@ -60,9 +60,7 @@ fn make_app(paths: DataPaths, speaker: Arc<dyn Speaker>, course: Course) -> App 
     progress.active_course_id = Some(course.id.clone());
     let mut config = Config::default();
     config.tts.r#override = inkworm::config::TtsOverride::On;
-    config.tts.iflytek.app_id = "test-app".into();
-    config.tts.iflytek.api_key = "test-key".into();
-    config.tts.iflytek.api_secret = "test-secret".into();
+    config.tts.elevenlabs.api_key = "sk_test".into();
     let bundle_player = Arc::new(BundlePlayer::new(None));
     App::new(
         Some(course),

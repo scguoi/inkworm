@@ -271,7 +271,7 @@ pub async fn probe_llm(llm: LlmConfig, cancel: CancellationToken) -> Result<(), 
 /// Fire a minimal TTS synthesis request to verify iFlytek credentials work.
 /// Uses an ephemeral cache dir and no audio output (cache-only mode).
 pub async fn probe_tts(
-    iflytek: crate::config::IflytekConfig,
+    elevenlabs: crate::config::ElevenLabsConfig,
     cancel: CancellationToken,
 ) -> Result<(), AppError> {
     use crate::config::TtsOverride;
@@ -280,7 +280,7 @@ pub async fn probe_tts(
     let cache_dir = std::env::temp_dir().join("inkworm-tts-probe");
     std::fs::create_dir_all(&cache_dir).ok();
 
-    let speaker = build_speaker(&iflytek, cache_dir, TtsOverride::On, None);
+    let speaker = build_speaker(&elevenlabs, cache_dir, TtsOverride::On, None);
 
     tokio::select! {
         res = speaker.speak("hello") => {
