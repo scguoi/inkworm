@@ -31,9 +31,7 @@ pub fn render_tts_status(
         OutputKind::Unknown => "unknown",
     };
 
-    let creds_ok = !config.iflytek.app_id.trim().is_empty()
-        && !config.iflytek.api_key.trim().is_empty()
-        && !config.iflytek.api_secret.trim().is_empty();
+    let creds_ok = !config.elevenlabs.api_key.trim().is_empty();
     let creds_str = if creds_ok { "✓ set" } else { "✗ not set" };
 
     let (count, bytes) = cache_stats;
@@ -119,13 +117,12 @@ mod tests {
         TtsConfig {
             enabled: true,
             r#override: TtsOverride::Auto,
-            iflytek: IflytekConfig {
-                app_id: "a".into(),
-                api_key: "k".into(),
-                api_secret: "s".into(),
-                voice: "x".into(),
+            iflytek: IflytekConfig::default(),
+            elevenlabs: ElevenLabsConfig {
+                api_key: "sk_test".into(),
+                voice_id: "v".into(),
+                model: "m".into(),
             },
-            elevenlabs: ElevenLabsConfig::default(),
         }
     }
 

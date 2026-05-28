@@ -93,9 +93,7 @@ pub fn run_checks(
     }
 
     // TTS credentials
-    let creds_ok = !config.tts.iflytek.app_id.trim().is_empty()
-        && !config.tts.iflytek.api_key.trim().is_empty()
-        && !config.tts.iflytek.api_secret.trim().is_empty();
+    let creds_ok = !config.tts.elevenlabs.api_key.trim().is_empty();
     if creds_ok {
         results.push(CheckResult::pass("TTS credentials"));
     } else {
