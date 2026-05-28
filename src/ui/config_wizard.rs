@@ -240,7 +240,7 @@ pub async fn probe_llm(llm: LlmConfig, cancel: CancellationToken) -> Result<(), 
     }
 }
 
-/// Fire a minimal TTS synthesis request to verify iFlytek credentials work.
+/// Fire a minimal TTS synthesis request to verify ElevenLabs credentials work.
 /// Uses an ephemeral cache dir and no audio output (cache-only mode).
 pub async fn probe_tts(
     elevenlabs: crate::config::ElevenLabsConfig,
