@@ -125,8 +125,6 @@ pub struct TtsConfig {
     #[serde(default = "default_tts_override")]
     pub r#override: TtsOverride,
     #[serde(default)]
-    pub iflytek: IflytekConfig,
-    #[serde(default)]
     pub elevenlabs: ElevenLabsConfig,
 }
 
@@ -142,7 +140,6 @@ impl Default for TtsConfig {
         Self {
             enabled: default_tts_enabled(),
             r#override: default_tts_override(),
-            iflytek: IflytekConfig::default(),
             elevenlabs: ElevenLabsConfig::default(),
         }
     }
@@ -156,33 +153,6 @@ pub enum TtsOverride {
     Off,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct IflytekConfig {
-    #[serde(default)]
-    pub app_id: String,
-    #[serde(default)]
-    pub api_key: String,
-    #[serde(default)]
-    pub api_secret: String,
-    #[serde(default = "default_voice")]
-    pub voice: String,
-}
-
-fn default_voice() -> String {
-    defaults::DEFAULT_IFLYTEK_VOICE.into()
-}
-
-impl Default for IflytekConfig {
-    fn default() -> Self {
-        Self {
-            app_id: String::new(),
-            api_key: String::new(),
-            api_secret: String::new(),
-            voice: default_voice(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -321,7 +291,7 @@ mod tests {
 
     #[test]
     fn validate_llm_does_not_flag_tts_issues() {
-        // Default config has tts.enabled=true and empty iflytek fields — but that's TTS's problem, not LLM's.
+        // Default config has tts.enabled=true and empty elevenlabs fields — but that's TTS's problem, not LLM's.
         let mut cfg = Config::default();
         cfg.llm.api_key = "sk-ok".into();
         let errs = cfg.validate_llm();

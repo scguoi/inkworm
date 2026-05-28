@@ -242,7 +242,7 @@ async fn bundled_hit_works_when_tts_session_disabled() {
 }
 
 #[tokio::test]
-async fn bundled_hit_works_when_no_iflytek_creds() {
+async fn bundled_hit_works_when_no_tts_creds() {
     let tmp = tempfile::tempdir().unwrap();
     let paths = DataPaths::for_tests(tmp.path().to_path_buf());
     paths.ensure_dirs().unwrap();
@@ -251,7 +251,7 @@ async fn bundled_hit_works_when_no_iflytek_creds() {
     let stage0 = course.sentences[0].drills[0].stage;
     place_bundle_file(&paths.courses_dir, &course.id, order0, stage0);
 
-    // Build the App with empty iFlytek creds; bundle must still play.
+    // Build the App with empty TTS creds; bundle must still play.
     let (task_tx, _task_rx) = mpsc::channel(16);
     let mut progress = inkworm::storage::progress::Progress::empty();
     progress.active_course_id = Some(course.id.clone());

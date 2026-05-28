@@ -34,17 +34,12 @@ tracing-appender = "0.2"
 whoami = "1"
 fs2 = "0.4"
 
-# TTS core (Plan 6b): URL signing + cache key + WAV I/O
-hmac = "0.12"
-sha2 = "0.10"
+# TTS core: cache key + WAV I/O
 base64 = "0.22"
-urlencoding = "2"
-httpdate = "1"
 blake3 = "1"
 hound = "3"
 
-# TTS live (Plan 6c): WS streaming + local audio playback
-tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+# TTS live: local audio playback
 rodio = { version = "0.19", default-features = false, features = ["mp3"] }
 # Bundle audio is decoded directly via symphonia: rodio 0.19's Decoder wraps
 # the source in a ReadSeekSource that hard-codes byte_len() = None, which

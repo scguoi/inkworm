@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use inkworm::app::{App, Screen};
 use inkworm::clock::SystemClock;
-use inkworm::config::{Config, IflytekConfig};
+use inkworm::config::{Config, ElevenLabsConfig};
 use inkworm::storage::paths::DataPaths;
 use inkworm::storage::progress::Progress;
 use inkworm::tts::speaker::{NullSpeaker, Speaker};
@@ -148,11 +148,10 @@ async fn atomic_save_preserves_tts_and_generation_fields() {
 
     // Pre-write a config.toml with TTS fields populated.
     let mut existing = Config::default();
-    existing.tts.iflytek = IflytekConfig {
-        app_id: "APP123".into(),
-        api_key: "KEY456".into(),
-        api_secret: "SEC789".into(),
-        voice: "x3_xiaoyan".into(),
+    existing.tts.elevenlabs = ElevenLabsConfig {
+        api_key: "sk_existing".into(),
+        voice_id: "v_existing".into(),
+        model: "m_existing".into(),
     };
     existing.generation.max_concurrent_calls = 7;
     existing.write_atomic(&paths.config_file).unwrap();
@@ -187,8 +186,8 @@ async fn atomic_save_preserves_tts_and_generation_fields() {
 
     let saved = Config::load(&paths.config_file).unwrap();
     assert_eq!(saved.llm.base_url, server.uri());
-    assert_eq!(saved.tts.iflytek.app_id, "APP123");
-    assert_eq!(saved.tts.iflytek.voice, "x3_xiaoyan");
+    assert_eq!(saved.tts.elevenlabs.api_key, "sk_existing");
+    assert_eq!(saved.tts.elevenlabs.voice_id, "v_existing");
     assert_eq!(saved.generation.max_concurrent_calls, 7);
 }
 
@@ -237,9 +236,7 @@ async fn tts_probe_success_saves_and_dismisses() {
         w.draft.llm.base_url = "https://x/v1".into();
         w.draft.llm.api_key = "sk-test".into();
         w.draft.llm.model = "gpt-4o-mini".into();
-        w.draft.tts.iflytek.app_id = "app123".into();
-        w.draft.tts.iflytek.api_key = "key456".into();
-        w.draft.tts.iflytek.api_secret = "sec789".into();
+        w.draft.tts.elevenlabs.api_key = "sk_test".into();
         w.tts_enabled = true;
         w.step = WizardStep::TtsApiKey;
     }
@@ -250,7 +247,7 @@ async fn tts_probe_success_saves_and_dismisses() {
     assert!(matches!(app.screen, Screen::Study));
     assert!(app.config_wizard.is_none());
     let saved = Config::load(&paths.config_file).unwrap();
-    assert_eq!(saved.tts.iflytek.app_id, "app123");
+    assert_eq!(saved.tts.elevenlabs.api_key, "sk_test");
     assert!(saved.tts.enabled);
 }
 

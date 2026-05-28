@@ -41,7 +41,7 @@ mod load_validation {
 
     #[test]
     fn zero_concurrent_calls_invalid() {
-        // Validate returns multiple errors here (iflytek creds are also
+        // Validate returns multiple errors here (elevenlabs api_key is also
         // missing since tts defaults to enabled + auto); we only assert the
         // specific Invalid variant we're targeting.
         let mut c = Config::default();

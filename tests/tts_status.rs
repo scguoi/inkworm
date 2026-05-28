@@ -1,15 +1,14 @@
-use inkworm::config::{Config, IflytekConfig, TtsOverride};
+use inkworm::config::{Config, ElevenLabsConfig, TtsOverride};
 use inkworm::tts::OutputKind;
 
 #[test]
 fn status_display_all_fields() {
     let mut cfg = Config::default();
     cfg.tts.r#override = TtsOverride::Auto;
-    cfg.tts.iflytek = IflytekConfig {
-        app_id: "app".into(),
-        api_key: "key".into(),
-        api_secret: "sec".into(),
-        voice: "x4_enus_catherine_profnews".into(),
+    cfg.tts.elevenlabs = ElevenLabsConfig {
+        api_key: "sk_test".into(),
+        voice_id: "21m00Tcm4TlvDq8ikWAM".into(),
+        model: "eleven_turbo_v2_5".into(),
     };
 
     let device = OutputKind::Bluetooth;
@@ -27,9 +26,7 @@ fn status_display_all_fields() {
     };
     assert_eq!(device_str, "headphones");
 
-    let creds_ok = !cfg.tts.iflytek.app_id.trim().is_empty()
-        && !cfg.tts.iflytek.api_key.trim().is_empty()
-        && !cfg.tts.iflytek.api_secret.trim().is_empty();
+    let creds_ok = !cfg.tts.elevenlabs.api_key.trim().is_empty();
     assert!(creds_ok);
 
     let (count, bytes) = cache_stats;
