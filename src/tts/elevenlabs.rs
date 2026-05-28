@@ -111,10 +111,63 @@ impl Speaker for ElevenLabsSpeaker {
             );
             return self.play_cached(&path, started_gen);
         }
-        // Task 4 fills this in.
-        Err(TtsError::Network(
-            "elevenlabs cache-miss not yet implemented".into(),
-        ))
+
+        let url = format!(
+            "{}/v1/text-to-speech/{}",
+            self.base_url.trim_end_matches('/'),
+            self.cfg.voice_id
+        );
+        let body = serde_json::json!({
+            "text": text,
+            "model_id": self.cfg.model,
+        });
+
+        let resp = self
+            .http
+            .post(&url)
+            .header("xi-api-key", &self.cfg.api_key)
+            .header("Accept", "audio/mpeg")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| TtsError::Network(format!("send: {e}")))?;
+
+        let status = resp.status();
+        if status.is_success() {
+            let bytes = resp
+                .bytes()
+                .await
+                .map_err(|e| TtsError::Network(format!("body: {e}")))?;
+
+            if self.generation.load(Ordering::SeqCst) != started_gen {
+                return Ok(()); // cancelled while we were downloading
+            }
+
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| TtsError::Cache(format!("mkdir: {e}")))?;
+            }
+            crate::storage::atomic::write_atomic(&path, &bytes)
+                .map_err(|e| TtsError::Cache(format!("write: {e}")))?;
+
+            tracing::info!(
+                text_len = text.len(),
+                cache_hit = false,
+                bytes = bytes.len(),
+                "ElevenLabs synthesis ok"
+            );
+            return self.play_cached(&path, started_gen);
+        }
+
+        let body_text = resp.text().await.unwrap_or_default();
+        let msg = format!("elevenlabs {status}: {body_text}");
+        if status == reqwest::StatusCode::UNAUTHORIZED
+            || status == reqwest::StatusCode::FORBIDDEN
+        {
+            Err(TtsError::Auth(msg))
+        } else {
+            Err(TtsError::Network(msg))
+        }
     }
 
     fn cancel(&self) {
@@ -202,5 +255,93 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let s = ElevenLabsSpeaker::new(dummy_cfg(), tmp.path().to_path_buf(), None);
         s.cancel(); // must not panic
+    }
+
+    #[tokio::test]
+    async fn cache_miss_posts_to_api_and_writes_cache() {
+        use wiremock::matchers::{method, path_regex};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/v1/text-to-speech/.*"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"fake-mp3-bytes".to_vec()))
+            .mount(&server)
+            .await;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let s = ElevenLabsSpeaker::with_base_url(
+            dummy_cfg(),
+            tmp.path().to_path_buf(),
+            server.uri(),
+            None, // cache-only mode: no decode attempted
+        );
+
+        let res = s.speak("hello").await;
+        assert!(res.is_ok(), "got {res:?}");
+
+        let cached = s.cache_path_for("hello");
+        assert!(cached.exists(), "cache file must be written");
+        let bytes = std::fs::read(&cached).unwrap();
+        assert_eq!(bytes, b"fake-mp3-bytes");
+    }
+
+    #[tokio::test]
+    async fn http_401_maps_to_auth_error() {
+        use wiremock::matchers::{method, path_regex};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/v1/text-to-speech/.*"))
+            .respond_with(ResponseTemplate::new(401).set_body_string("unauthorized"))
+            .mount(&server)
+            .await;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let s = ElevenLabsSpeaker::with_base_url(
+            dummy_cfg(),
+            tmp.path().to_path_buf(),
+            server.uri(),
+            None,
+        );
+        let err = s.speak("hello").await.unwrap_err();
+        assert!(matches!(err, TtsError::Auth(_)), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn http_429_maps_to_network_error() {
+        use wiremock::matchers::{method, path_regex};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/v1/text-to-speech/.*"))
+            .respond_with(ResponseTemplate::new(429).set_body_string("rate-limited"))
+            .mount(&server)
+            .await;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let s = ElevenLabsSpeaker::with_base_url(
+            dummy_cfg(),
+            tmp.path().to_path_buf(),
+            server.uri(),
+            None,
+        );
+        let err = s.speak("hello").await.unwrap_err();
+        assert!(matches!(err, TtsError::Network(_)), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn unreachable_host_maps_to_network_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = ElevenLabsSpeaker::with_base_url(
+            dummy_cfg(),
+            tmp.path().to_path_buf(),
+            "http://127.0.0.1:1".into(), // reserved port, refused
+            None,
+        );
+        let err = s.speak("hello").await.unwrap_err();
+        assert!(matches!(err, TtsError::Network(_)), "got {err:?}");
     }
 }
