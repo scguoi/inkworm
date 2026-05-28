@@ -112,4 +112,13 @@ mod load_validation {
         c.data.home = "/tmp/inkworm".into();
         assert_eq!(c.data_home_override(), Some(PathBuf::from("/tmp/inkworm")));
     }
+
+    #[test]
+    fn elevenlabs_defaults_carry_rachel_and_turbo() {
+        use inkworm::config::ElevenLabsConfig;
+        let cfg = ElevenLabsConfig::default();
+        assert_eq!(cfg.voice_id, "21m00Tcm4TlvDq8ikWAM");
+        assert_eq!(cfg.model, "eleven_turbo_v2_5");
+        assert!(cfg.api_key.is_empty());
+    }
 }

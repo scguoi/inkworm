@@ -126,6 +126,8 @@ pub struct TtsConfig {
     pub r#override: TtsOverride,
     #[serde(default)]
     pub iflytek: IflytekConfig,
+    #[serde(default)]
+    pub elevenlabs: ElevenLabsConfig,
 }
 
 fn default_tts_enabled() -> bool {
@@ -141,6 +143,7 @@ impl Default for TtsConfig {
             enabled: default_tts_enabled(),
             r#override: default_tts_override(),
             iflytek: IflytekConfig::default(),
+            elevenlabs: ElevenLabsConfig::default(),
         }
     }
 }
@@ -177,6 +180,35 @@ impl Default for IflytekConfig {
             api_key: String::new(),
             api_secret: String::new(),
             voice: default_voice(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ElevenLabsConfig {
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default = "default_elevenlabs_voice_id")]
+    pub voice_id: String,
+    #[serde(default = "default_elevenlabs_model")]
+    pub model: String,
+}
+
+fn default_elevenlabs_voice_id() -> String {
+    defaults::DEFAULT_ELEVENLABS_VOICE_ID.into()
+}
+
+fn default_elevenlabs_model() -> String {
+    defaults::DEFAULT_ELEVENLABS_MODEL.into()
+}
+
+impl Default for ElevenLabsConfig {
+    fn default() -> Self {
+        Self {
+            api_key: String::new(),
+            voice_id: default_elevenlabs_voice_id(),
+            model: default_elevenlabs_model(),
         }
     }
 }

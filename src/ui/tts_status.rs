@@ -111,7 +111,7 @@ pub fn render_tts_status(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{IflytekConfig, TtsConfig, TtsOverride};
+    use crate::config::{ElevenLabsConfig, IflytekConfig, TtsConfig, TtsOverride};
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
 
@@ -125,6 +125,7 @@ mod tests {
                 api_secret: "s".into(),
                 voice: "x".into(),
             },
+            elevenlabs: ElevenLabsConfig::default(),
         }
     }
 
