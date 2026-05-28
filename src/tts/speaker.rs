@@ -64,6 +64,7 @@ pub fn build_speaker(
     ))
 }
 
+#[cfg(test)]
 fn has_creds(cfg: &ElevenLabsConfig) -> bool {
     !cfg.api_key.trim().is_empty()
 }

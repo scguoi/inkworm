@@ -2,8 +2,7 @@
 //!
 //! `BundlePlayer` owns a single rodio `Sink` slot for the most recently
 //! triggered bundle playback. Calling `play()` while audio is already
-//! playing supersedes the previous sink (matches the IflytekSpeaker
-//! convention). `cancel()` stops the active sink.
+//! playing supersedes the previous sink. `cancel()` stops the active sink.
 //!
 //! Decoding is driven directly by `symphonia` rather than `rodio::Decoder`:
 //! rodio 0.19's wrapper reports `byte_len() = None` and `unreachable!()`s

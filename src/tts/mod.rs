@@ -1,6 +1,5 @@
-//! TTS subsystem root. Plan 6a lands only the cache-clear helper here;
-//! Plan 6b will add the Speaker trait, IflytekSpeaker, device detection,
-//! and rodio playback.
+//! TTS subsystem root. Houses the cache module + clear_cache helper.
+//! Speaker implementations live in sibling modules (`speaker.rs`, `elevenlabs.rs`).
 
 use std::fs;
 use std::io;
