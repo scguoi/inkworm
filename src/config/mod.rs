@@ -282,14 +282,8 @@ impl Config {
     pub fn validate_tts(&self) -> Vec<ConfigError> {
         let mut errs = Vec::new();
         if self.tts.enabled && self.tts.r#override != TtsOverride::Off {
-            if self.tts.iflytek.app_id.trim().is_empty() {
-                errs.push(ConfigError::MissingField("tts.iflytek.app_id"));
-            }
-            if self.tts.iflytek.api_key.trim().is_empty() {
-                errs.push(ConfigError::MissingField("tts.iflytek.api_key"));
-            }
-            if self.tts.iflytek.api_secret.trim().is_empty() {
-                errs.push(ConfigError::MissingField("tts.iflytek.api_secret"));
+            if self.tts.elevenlabs.api_key.trim().is_empty() {
+                errs.push(ConfigError::MissingField("tts.elevenlabs.api_key"));
             }
         }
         errs
@@ -335,12 +329,12 @@ mod tests {
     }
 
     #[test]
-    fn validate_tts_flags_missing_iflytek_when_enabled() {
+    fn validate_tts_flags_missing_elevenlabs_api_key_when_enabled() {
         let cfg = Config::default();
         let errs = cfg.validate_tts();
         assert!(errs
             .iter()
-            .any(|e| matches!(e, ConfigError::MissingField("tts.iflytek.app_id"))));
+            .any(|e| matches!(e, ConfigError::MissingField("tts.elevenlabs.api_key"))));
     }
 
     #[test]

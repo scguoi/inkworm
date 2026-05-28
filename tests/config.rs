@@ -19,14 +19,12 @@ mod load_validation {
     fn fully_populated_validates_clean() {
         let mut c = Config::default();
         c.llm.api_key = "sk-test".into();
-        c.tts.iflytek.app_id = "a".into();
-        c.tts.iflytek.api_key = "b".into();
-        c.tts.iflytek.api_secret = "c".into();
+        c.tts.elevenlabs.api_key = "sk_test".into();
         assert!(c.validate().is_empty());
     }
 
     #[test]
-    fn tts_disabled_skips_iflytek_validation() {
+    fn tts_disabled_skips_elevenlabs_validation() {
         let mut c = Config::default();
         c.llm.api_key = "sk".into();
         c.tts.enabled = false;
@@ -34,7 +32,7 @@ mod load_validation {
     }
 
     #[test]
-    fn tts_override_off_skips_iflytek_validation() {
+    fn tts_override_off_skips_elevenlabs_validation() {
         let mut c = Config::default();
         c.llm.api_key = "sk".into();
         c.tts.r#override = TtsOverride::Off;
@@ -73,9 +71,7 @@ mod load_validation {
         let path = env.home.join("config.toml");
         let mut c = Config::default();
         c.llm.api_key = "sk-1".into();
-        c.tts.iflytek.app_id = "a".into();
-        c.tts.iflytek.api_key = "b".into();
-        c.tts.iflytek.api_secret = "c".into();
+        c.tts.elevenlabs.api_key = "sk_test".into();
         c.write_atomic(&path).unwrap();
         let loaded = Config::load(&path).unwrap();
         assert_eq!(loaded, c);
