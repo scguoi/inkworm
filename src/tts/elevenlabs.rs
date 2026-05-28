@@ -52,14 +52,8 @@ impl ElevenLabsSpeaker {
     }
 
     fn cache_path_for(&self, text: &str) -> PathBuf {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(text.as_bytes());
-        hasher.update(b"\n");
-        hasher.update(self.cfg.voice_id.as_bytes());
-        hasher.update(b"\n");
-        hasher.update(self.cfg.model.as_bytes());
-        let key = hasher.finalize().to_hex().to_string();
-        self.cache_dir.join(format!("{key}.mp3"))
+        let key = crate::tts::cache::cache_key(text, &self.cfg.voice_id, &self.cfg.model);
+        crate::tts::cache::cache_path(&self.cache_dir, &key)
     }
 
     /// Decode the cached MP3 at `path` and install a fresh `rodio::Sink`

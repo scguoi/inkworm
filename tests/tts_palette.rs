@@ -106,20 +106,20 @@ fn tts_off_then_auto_cycles_in_memory_only() {
 }
 
 #[test]
-fn tts_clear_cache_removes_wav_files() {
+fn tts_clear_cache_removes_mp3_files() {
     let tmp = tempfile::tempdir().unwrap();
     let paths = DataPaths::for_tests(tmp.path().to_path_buf());
     paths.ensure_dirs().unwrap();
-    std::fs::write(paths.tts_cache_dir.join("a.wav"), b"x").unwrap();
-    std::fs::write(paths.tts_cache_dir.join("b.wav"), b"y").unwrap();
+    std::fs::write(paths.tts_cache_dir.join("a.mp3"), b"x").unwrap();
+    std::fs::write(paths.tts_cache_dir.join("b.mp3"), b"y").unwrap();
     let mut app = make_app(paths.clone());
 
     app.on_input(ctrl('p'));
     type_chars(&mut app, "tts clear-cache");
     app.on_input(key(KeyCode::Enter));
 
-    assert!(!paths.tts_cache_dir.join("a.wav").exists());
-    assert!(!paths.tts_cache_dir.join("b.wav").exists());
+    assert!(!paths.tts_cache_dir.join("a.mp3").exists());
+    assert!(!paths.tts_cache_dir.join("b.mp3").exists());
     assert!(paths.tts_cache_dir.is_dir(), "directory itself preserved");
 }
 

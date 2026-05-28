@@ -5,7 +5,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-/// Delete every regular file inside `dir` whose extension is `wav`.
+/// Delete every regular file inside `dir` whose extension is `mp3`.
 /// Returns the number of files removed.
 /// Leaves the directory itself (and any subdirectories) in place.
 /// If `dir` does not exist, returns `Ok(0)` — nothing to clear.
@@ -20,7 +20,7 @@ pub fn clear_cache(dir: &Path) -> io::Result<usize> {
         if !path.is_file() {
             continue;
         }
-        if path.extension().and_then(|e| e.to_str()) != Some("wav") {
+        if path.extension().and_then(|e| e.to_str()) != Some("mp3") {
             continue;
         }
         fs::remove_file(&path)?;
@@ -57,11 +57,11 @@ mod tests {
     }
 
     #[test]
-    fn clear_cache_removes_only_wav_files() {
+    fn clear_cache_removes_only_mp3_files() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(tmp.path().join("a.wav"), b"fake").unwrap();
-        std::fs::write(tmp.path().join("b.wav"), b"fake").unwrap();
-        std::fs::write(tmp.path().join("c.wav"), b"fake").unwrap();
+        std::fs::write(tmp.path().join("a.mp3"), b"fake").unwrap();
+        std::fs::write(tmp.path().join("b.mp3"), b"fake").unwrap();
+        std::fs::write(tmp.path().join("c.mp3"), b"fake").unwrap();
         std::fs::write(tmp.path().join("notes.txt"), b"keep me").unwrap();
         std::fs::create_dir(tmp.path().join("sub")).unwrap();
 
@@ -69,6 +69,6 @@ mod tests {
         assert_eq!(removed, 3);
         assert!(tmp.path().join("notes.txt").exists());
         assert!(tmp.path().join("sub").is_dir());
-        assert!(!tmp.path().join("a.wav").exists());
+        assert!(!tmp.path().join("a.mp3").exists());
     }
 }
