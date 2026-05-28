@@ -241,7 +241,7 @@ async fn tts_probe_success_saves_and_dismisses() {
         w.draft.tts.iflytek.api_key = "key456".into();
         w.draft.tts.iflytek.api_secret = "sec789".into();
         w.tts_enabled = true;
-        w.step = WizardStep::TtsApiSecret;
+        w.step = WizardStep::TtsApiKey;
     }
 
     // Simulate TTS probe success
@@ -264,7 +264,7 @@ async fn tts_probe_failed_keeps_wizard_open() {
     {
         let w = app.config_wizard.as_mut().unwrap();
         w.tts_enabled = true;
-        w.step = WizardStep::TtsApiSecret;
+        w.step = WizardStep::TtsApiKey;
     }
 
     let err =
@@ -379,32 +379,8 @@ async fn full_wizard_flow_with_tts_enabled() {
         KeyModifiers::NONE,
     )));
 
-    // TtsAppId
-    for c in "app123".chars() {
-        app.on_input(Event::Key(KeyEvent::new(
-            KeyCode::Char(c),
-            KeyModifiers::NONE,
-        )));
-    }
-    app.on_input(Event::Key(KeyEvent::new(
-        KeyCode::Enter,
-        KeyModifiers::NONE,
-    )));
-
-    // TtsApiKey
-    for c in "key456".chars() {
-        app.on_input(Event::Key(KeyEvent::new(
-            KeyCode::Char(c),
-            KeyModifiers::NONE,
-        )));
-    }
-    app.on_input(Event::Key(KeyEvent::new(
-        KeyCode::Enter,
-        KeyModifiers::NONE,
-    )));
-
-    // TtsApiSecret
-    for c in "sec789".chars() {
+    // TtsApiKey (ElevenLabs)
+    for c in "el-key-test".chars() {
         app.on_input(Event::Key(KeyEvent::new(
             KeyCode::Char(c),
             KeyModifiers::NONE,
@@ -422,8 +398,6 @@ async fn full_wizard_flow_with_tts_enabled() {
     assert!(matches!(app.screen, Screen::Study));
     let saved = Config::load(&paths.config_file).unwrap();
     assert_eq!(saved.llm.base_url, server.uri());
-    assert_eq!(saved.tts.iflytek.app_id, "app123");
-    assert_eq!(saved.tts.iflytek.api_key, "key456");
-    assert_eq!(saved.tts.iflytek.api_secret, "sec789");
+    assert_eq!(saved.tts.elevenlabs.api_key, "el-key-test");
     assert!(saved.tts.enabled);
 }

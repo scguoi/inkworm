@@ -22,9 +22,7 @@ pub enum WizardStep {
     ApiKey,
     Model,
     TtsEnable,
-    TtsAppId,
     TtsApiKey,
-    TtsApiSecret,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,7 +90,7 @@ impl WizardState {
 
     pub fn total_steps(&self) -> u8 {
         if self.tts_enabled {
-            7
+            5
         } else {
             4
         }
@@ -104,9 +102,7 @@ impl WizardState {
             WizardStep::ApiKey => 2,
             WizardStep::Model => 3,
             WizardStep::TtsEnable => 4,
-            WizardStep::TtsAppId => 5,
-            WizardStep::TtsApiKey => 6,
-            WizardStep::TtsApiSecret => 7,
+            WizardStep::TtsApiKey => 5,
         }
     }
 
@@ -129,9 +125,7 @@ impl WizardState {
                 WizardStep::Endpoint => "Endpoint cannot be empty",
                 WizardStep::ApiKey => "API key cannot be empty",
                 WizardStep::Model => "Model cannot be empty",
-                WizardStep::TtsAppId => "App ID cannot be empty",
                 WizardStep::TtsApiKey => "API key cannot be empty",
-                WizardStep::TtsApiSecret => "API secret cannot be empty",
                 WizardStep::TtsEnable => unreachable!(),
             };
             self.error = Some(UserMessage {
@@ -163,8 +157,8 @@ impl WizardState {
                 if lower == "y" {
                     self.tts_enabled = true;
                     self.draft.tts.enabled = true;
-                    self.step = WizardStep::TtsAppId;
-                    self.input = self.draft.tts.iflytek.app_id.clone();
+                    self.step = WizardStep::TtsApiKey;
+                    self.input = self.draft.tts.elevenlabs.api_key.clone();
                     CommitOutcome::Advance
                 } else if lower == "n" {
                     self.tts_enabled = false;
@@ -179,20 +173,8 @@ impl WizardState {
                     CommitOutcome::Invalid
                 }
             }
-            WizardStep::TtsAppId => {
-                self.draft.tts.iflytek.app_id = trimmed.to_string();
-                self.step = WizardStep::TtsApiKey;
-                self.input = self.draft.tts.iflytek.api_key.clone();
-                CommitOutcome::Advance
-            }
             WizardStep::TtsApiKey => {
-                self.draft.tts.iflytek.api_key = trimmed.to_string();
-                self.step = WizardStep::TtsApiSecret;
-                self.input = self.draft.tts.iflytek.api_secret.clone();
-                CommitOutcome::Advance
-            }
-            WizardStep::TtsApiSecret => {
-                self.draft.tts.iflytek.api_secret = trimmed.to_string();
+                self.draft.tts.elevenlabs.api_key = trimmed.to_string();
                 CommitOutcome::ProbeTts
             }
         }
@@ -221,19 +203,9 @@ impl WizardState {
                 self.input = self.draft.llm.model.clone();
                 BackOutcome::Back
             }
-            WizardStep::TtsAppId => {
+            WizardStep::TtsApiKey => {
                 self.step = WizardStep::TtsEnable;
                 self.input = if self.tts_enabled { "y" } else { "n" }.to_string();
-                BackOutcome::Back
-            }
-            WizardStep::TtsApiKey => {
-                self.step = WizardStep::TtsAppId;
-                self.input = self.draft.tts.iflytek.app_id.clone();
-                BackOutcome::Back
-            }
-            WizardStep::TtsApiSecret => {
-                self.step = WizardStep::TtsApiKey;
-                self.input = self.draft.tts.iflytek.api_key.clone();
                 BackOutcome::Back
             }
         }
@@ -304,18 +276,14 @@ pub fn wizard_step_label(step: WizardStep) -> &'static str {
         WizardStep::ApiKey => "LLM API key",
         WizardStep::Model => "LLM model",
         WizardStep::TtsEnable => "Enable TTS? (y/n)",
-        WizardStep::TtsAppId => "iFlytek App ID",
-        WizardStep::TtsApiKey => "iFlytek API Key",
-        WizardStep::TtsApiSecret => "iFlytek API Secret",
+        WizardStep::TtsApiKey => "ElevenLabs API key",
     }
 }
 
 /// Display-ready input — masks the ApiKey, TtsApiKey, and TtsApiSecret steps.
 pub fn mask_for_display(input: &str, step: WizardStep) -> String {
     match step {
-        WizardStep::ApiKey | WizardStep::TtsApiKey | WizardStep::TtsApiSecret => {
-            "*".repeat(input.chars().count())
-        }
+        WizardStep::ApiKey | WizardStep::TtsApiKey => "*".repeat(input.chars().count()),
         _ => input.to_string(),
     }
 }
@@ -331,9 +299,7 @@ pub fn wizard_hint(step: WizardStep, origin: WizardOrigin, testing: bool) -> &'s
         (WizardStep::ApiKey, _) => "Enter · next     Esc · back",
         (WizardStep::Model, _) => "Enter · test and save     Esc · back",
         (WizardStep::TtsEnable, _) => "Enter · next     Esc · back",
-        (WizardStep::TtsAppId, _) => "Enter · next     Esc · back",
-        (WizardStep::TtsApiKey, _) => "Enter · next     Esc · back",
-        (WizardStep::TtsApiSecret, _) => "Enter · test and save     Esc · back",
+        (WizardStep::TtsApiKey, _) => "Enter · test and save     Esc · back",
     }
 }
 
@@ -560,7 +526,7 @@ mod tests {
     }
 
     #[test]
-    fn tts_enable_y_advances_to_tts_app_id() {
+    fn tts_enable_y_advances_to_tts_api_key() {
         let mut w = new_wiz();
         w.input = "https://x/v1".into();
         w.commit();
@@ -570,7 +536,7 @@ mod tests {
         w.input = "y".into();
         let outcome = w.commit();
         assert!(matches!(outcome, CommitOutcome::Advance));
-        assert_eq!(w.step, WizardStep::TtsAppId);
+        assert_eq!(w.step, WizardStep::TtsApiKey);
         assert!(w.tts_enabled);
     }
 
@@ -599,45 +565,22 @@ mod tests {
     fn tts_credential_steps_advance() {
         let mut w = new_wiz();
         w.tts_enabled = true;
-        w.step = WizardStep::TtsAppId;
-        w.input = "app123".into();
-        let outcome = w.commit();
-        assert!(matches!(outcome, CommitOutcome::Advance));
-        assert_eq!(w.step, WizardStep::TtsApiKey);
-        assert_eq!(w.draft.tts.iflytek.app_id, "app123");
-
-        w.input = "key456".into();
-        let outcome = w.commit();
-        assert!(matches!(outcome, CommitOutcome::Advance));
-        assert_eq!(w.step, WizardStep::TtsApiSecret);
-        assert_eq!(w.draft.tts.iflytek.api_key, "key456");
-
-        w.input = "sec789".into();
+        w.step = WizardStep::TtsApiKey;
+        w.input = "el-key-abc".into();
         let outcome = w.commit();
         assert!(matches!(outcome, CommitOutcome::ProbeTts));
-        assert_eq!(w.draft.tts.iflytek.api_secret, "sec789");
+        assert_eq!(w.draft.tts.elevenlabs.api_key, "el-key-abc");
     }
 
     #[test]
     fn tts_back_navigation() {
         let mut w = new_wiz();
         w.tts_enabled = true;
-        w.step = WizardStep::TtsApiSecret;
-        w.draft.tts.iflytek.api_key = "k".into();
-        let outcome = w.back();
-        assert!(matches!(outcome, BackOutcome::Back));
-        assert_eq!(w.step, WizardStep::TtsApiKey);
-        assert_eq!(w.input, "k");
-
-        w.draft.tts.iflytek.app_id = "a".into();
-        let outcome = w.back();
-        assert!(matches!(outcome, BackOutcome::Back));
-        assert_eq!(w.step, WizardStep::TtsAppId);
-        assert_eq!(w.input, "a");
-
+        w.step = WizardStep::TtsApiKey;
         let outcome = w.back();
         assert!(matches!(outcome, BackOutcome::Back));
         assert_eq!(w.step, WizardStep::TtsEnable);
+        assert_eq!(w.input, "y");
     }
 
     #[test]
@@ -647,7 +590,7 @@ mod tests {
         w.tts_enabled = false;
         assert_eq!(w.total_steps(), 4);
         w.tts_enabled = true;
-        assert_eq!(w.total_steps(), 7);
+        assert_eq!(w.total_steps(), 5);
     }
 
     #[test]
@@ -657,8 +600,8 @@ mod tests {
         assert_eq!(w.step_number(), 1);
         w.step = WizardStep::TtsEnable;
         assert_eq!(w.step_number(), 4);
-        w.step = WizardStep::TtsApiSecret;
-        assert_eq!(w.step_number(), 7);
+        w.step = WizardStep::TtsApiKey;
+        assert_eq!(w.step_number(), 5);
     }
 
     #[test]
@@ -668,17 +611,12 @@ mod tests {
         w.tts_enabled = false;
         assert_eq!(wizard_title_dynamic(&w), "inkworm — setup (4 / 4)");
         w.tts_enabled = true;
-        assert_eq!(wizard_title_dynamic(&w), "inkworm — setup (4 / 7)");
+        assert_eq!(wizard_title_dynamic(&w), "inkworm — setup (4 / 5)");
     }
 
     #[test]
     fn mask_hides_tts_secrets() {
         assert_eq!(mask_for_display("secret", WizardStep::TtsApiKey), "******");
-        assert_eq!(
-            mask_for_display("secret", WizardStep::TtsApiSecret),
-            "******"
-        );
-        assert_eq!(mask_for_display("app123", WizardStep::TtsAppId), "app123");
     }
 
     #[test]
@@ -688,7 +626,7 @@ mod tests {
             "Enter · next     Esc · back"
         );
         assert_eq!(
-            wizard_hint(WizardStep::TtsApiSecret, WizardOrigin::FirstRun, false),
+            wizard_hint(WizardStep::TtsApiKey, WizardOrigin::FirstRun, false),
             "Enter · test and save     Esc · back"
         );
     }
