@@ -54,7 +54,7 @@ pub enum CommitOutcome {
     Advance,
     /// On Model step — spawn connectivity test.
     ProbeConnectivity,
-    /// On TtsApiSecret step — spawn TTS connectivity test.
+    /// On TtsApiKey step — spawn TTS connectivity test.
     ProbeTts,
     /// Save config without TTS probe (user declined TTS).
     SaveConfig,
@@ -280,7 +280,7 @@ pub fn wizard_step_label(step: WizardStep) -> &'static str {
     }
 }
 
-/// Display-ready input — masks the ApiKey, TtsApiKey, and TtsApiSecret steps.
+/// Display-ready input — masks the ApiKey and TtsApiKey steps.
 pub fn mask_for_display(input: &str, step: WizardStep) -> String {
     match step {
         WizardStep::ApiKey | WizardStep::TtsApiKey => "*".repeat(input.chars().count()),
