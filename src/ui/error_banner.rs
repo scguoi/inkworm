@@ -85,7 +85,7 @@ pub fn user_message(err: &AppError) -> UserMessage {
         AppError::Tts(tts_err) => match tts_err {
             TtsError::Auth(_) => UserMessage::new(
                 "TTS authentication failed",
-                "Check your iFlytek credentials",
+                "Check your ElevenLabs API key",
                 Severity::Error,
             ),
             TtsError::Network(_) => UserMessage::new(

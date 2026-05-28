@@ -25,8 +25,8 @@ pub enum TtsError {
 
 /// The speaker contract. Implementations must be cheap to construct and
 /// safe to share across tasks (`Send + Sync`). `speak` is `async` because
-/// the real impl will stream over WS; `cancel` is sync because callers
-/// need to interrupt immediately (drill-change path).
+/// real impls do network I/O; `cancel` is sync because callers need to
+/// interrupt immediately (drill-change path).
 #[async_trait]
 pub trait Speaker: Send + Sync {
     async fn speak(&self, text: &str) -> Result<(), TtsError>;

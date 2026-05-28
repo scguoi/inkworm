@@ -279,6 +279,6 @@ async fn bundled_hit_works_when_no_tts_creds() {
     let speaks = spoken.lock().unwrap().clone();
     assert!(
         speaks.is_empty(),
-        "bundle must play with empty iFlytek creds, got {speaks:?}"
+        "bundle must play with empty TTS creds, got {speaks:?}"
     );
 }

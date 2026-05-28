@@ -563,7 +563,7 @@ impl App {
             return;
         }
         if !self.tts_has_creds() {
-            tracing::debug!("No iFlytek creds, skipping TTS");
+            tracing::debug!("No ElevenLabs creds, skipping TTS");
             return;
         }
 
