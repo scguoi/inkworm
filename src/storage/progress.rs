@@ -234,5 +234,4 @@ mod tests {
         p.reset_course_progress("ghost");
         assert!(p.courses.is_empty());
     }
-
 }

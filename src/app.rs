@@ -357,9 +357,8 @@ impl App {
     /// don't represent ongoing background state.
     pub fn set_toast(&mut self, text: String) {
         self.info_banner = Some(text);
-        self.info_banner_expires_at = Some(
-            self.clock.now() + chrono::Duration::milliseconds(TOAST_DURATION_MS),
-        );
+        self.info_banner_expires_at =
+            Some(self.clock.now() + chrono::Duration::milliseconds(TOAST_DURATION_MS));
     }
 
     /// Set a banner that stays until explicitly cleared. Reserved for
@@ -404,10 +403,7 @@ impl App {
     pub fn flush_all_now(&mut self) {
         let wrote = self.progress_dirty || self.mistakes_dirty;
         if self.progress_dirty {
-            let _ = self
-                .study
-                .progress()
-                .save(&self.data_paths.progress_file);
+            let _ = self.study.progress().save(&self.data_paths.progress_file);
             self.progress_dirty = false;
         }
         if self.mistakes_dirty {
@@ -823,6 +819,15 @@ impl App {
                         self.tts_session_disabled = true;
                         tracing::warn!("TTS session disabled after 5 consecutive failures");
                     }
+                    let headline = if self.tts_session_disabled {
+                        "TTS disabled"
+                    } else {
+                        "TTS failed"
+                    };
+                    self.set_toast(format!(
+                        "{} — {}. See /tts for details.",
+                        headline, e.message
+                    ));
                 }
             },
             TaskMsg::PrewarmProgress {
@@ -1470,11 +1475,8 @@ impl App {
         inner
     }
 
-    /// Stack the bottom-of-screen banners: a red TTS-disabled banner (when
-    /// the session is paused) above the yellow info banner. Each takes one
-    /// row; older info_banner sits on the very last row to preserve current
-    /// layout, the TTS banner — which we want maximally visible — sits one
-    /// row above it (or on the last row if there's no info_banner).
+    /// Stack the bottom-of-screen banners. Transient notices sit on the last
+    /// row; the study mini-strip moves up while a notice is visible.
     fn render_bottom_banners(&self, frame: &mut Frame, inner: ratatui::layout::Rect) {
         use ratatui::{
             layout::Rect,
@@ -1490,22 +1492,6 @@ impl App {
                 .style(Style::default().fg(Color::Yellow))
                 .centered();
             frame.render_widget(para, Rect::new(inner.x, last_row, inner.width, 1));
-            row_from_bottom += 1;
-        }
-
-        if self.tts_session_disabled {
-            let reason = self
-                .last_tts_error
-                .try_lock()
-                .ok()
-                .and_then(|g| g.clone())
-                .unwrap_or_else(|| "session paused".into());
-            let text = format!("🔇 TTS disabled — {}. See /tts for details.", reason);
-            let y = last_row.saturating_sub(row_from_bottom);
-            let para = Paragraph::new(Line::from(text))
-                .style(Style::default().fg(Color::Red))
-                .centered();
-            frame.render_widget(para, Rect::new(inner.x, y, inner.width, 1));
             row_from_bottom += 1;
         }
 
@@ -1736,6 +1722,11 @@ impl App {
                     s.select_last();
                 }
             }
+            KeyCode::Tab | KeyCode::BackTab => {
+                if let Some(s) = &mut self.course_list {
+                    s.toggle_view();
+                }
+            }
             KeyCode::Enter => {
                 let Some(list) = self.course_list.as_ref() else {
                     return;
@@ -1745,8 +1736,7 @@ impl App {
                 };
                 let chosen_id = item.meta.id.clone();
                 let is_over_learned = item.is_over_learned();
-                let already_armed =
-                    list.over_learned_armed.as_deref() == Some(chosen_id.as_str());
+                let already_armed = list.over_learned_armed.as_deref() == Some(chosen_id.as_str());
                 if is_over_learned && !already_armed {
                     // First Enter on an over-learned course: arm, show the
                     // confirm hint, do NOT trigger the relearn-reset yet.
@@ -2502,6 +2492,21 @@ mod toast_tests {
         )
     }
 
+    fn render_app_to_string(app: &App) -> String {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+
+        let backend = TestBackend::new(120, 20);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| app.render(f)).unwrap();
+        term.backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect()
+    }
+
     #[test]
     fn toast_clears_after_1000ms() {
         let t0 = Utc.with_ymd_and_hms(2026, 5, 18, 12, 0, 0).unwrap();
@@ -2523,6 +2528,39 @@ mod toast_tests {
         assert!(
             app.info_banner.is_none(),
             "after 1000ms toast should be gone"
+        );
+    }
+
+    #[test]
+    fn tts_failure_sets_one_second_toast() {
+        let t0 = Utc.with_ymd_and_hms(2026, 5, 18, 12, 0, 0).unwrap();
+        let clock = Arc::new(MutableClock::new(t0));
+        let mut app = app_with_clock(Arc::clone(&clock));
+
+        app.on_task_msg(TaskMsg::TtsSpeakResult(Err(
+            crate::ui::task_msg::TtsSpeakErr {
+                message: "TTS auth failure: payment required".into(),
+                is_auth: true,
+            },
+        )));
+
+        assert!(app.tts_session_disabled, "auth failures still pause TTS");
+        assert_eq!(
+            app.info_banner.as_deref(),
+            Some("TTS disabled — TTS auth failure: payment required. See /tts for details.")
+        );
+
+        clock.advance(Duration::milliseconds(1001));
+        app.on_tick();
+
+        assert!(
+            app.info_banner.is_none(),
+            "TTS failure notice should disappear after 1s"
+        );
+        let rendered = render_app_to_string(&app);
+        assert!(
+            !rendered.contains("TTS disabled"),
+            "TTS disabled banner must not stay on screen after toast expiry: {rendered:?}"
         );
     }
 

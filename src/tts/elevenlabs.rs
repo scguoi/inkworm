@@ -76,7 +76,9 @@ impl ElevenLabsSpeaker {
         }
         let sink = rodio::Sink::try_new(audio).map_err(|e| TtsError::Audio(e.to_string()))?;
         sink.append(rodio::buffer::SamplesBuffer::new(
-            channels, sample_rate, samples,
+            channels,
+            sample_rate,
+            samples,
         ));
         if let Ok(mut guard) = self.current_sink.lock() {
             if self.generation.load(Ordering::SeqCst) != started_gen {
@@ -155,9 +157,7 @@ impl Speaker for ElevenLabsSpeaker {
 
         let body_text = resp.text().await.unwrap_or_default();
         let msg = format!("elevenlabs {status}: {body_text}");
-        if status == reqwest::StatusCode::UNAUTHORIZED
-            || status == reqwest::StatusCode::FORBIDDEN
-        {
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             Err(TtsError::Auth(msg))
         } else {
             Err(TtsError::Network(msg))

@@ -292,11 +292,11 @@ mod tests {
         // having faulted (the bug pre-fix would have tried to install).
         let player = BundlePlayer::new(None);
         player.cancel(); // bump generation to 1
-        // play() snapshots generation=1, decodes, re-reads generation=1
-        // (no further cancel), so it would *normally* install. Audio=None
-        // means there's no sink to install regardless — what we're really
-        // checking is the post-decode early-return when generation jumped
-        // between snapshot and check:
+                         // play() snapshots generation=1, decodes, re-reads generation=1
+                         // (no further cancel), so it would *normally* install. Audio=None
+                         // means there's no sink to install regardless — what we're really
+                         // checking is the post-decode early-return when generation jumped
+                         // between snapshot and check:
         let path = Path::new("fixtures/audio/silence.mp3");
         let res = player.play(path).await;
         assert!(res.is_ok(), "play after cancel must still complete cleanly");
@@ -315,7 +315,9 @@ mod tests {
         // post-decode generation check is the load-bearing assertion.
         let player_clone = Arc::clone(&player);
         let play_task = tokio::spawn(async move {
-            player_clone.play(Path::new("fixtures/audio/silence.mp3")).await
+            player_clone
+                .play(Path::new("fixtures/audio/silence.mp3"))
+                .await
         });
 
         // Yield to give the spawn_blocking a moment, then cancel.

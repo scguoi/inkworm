@@ -153,7 +153,6 @@ pub enum TtsOverride {
     Off,
 }
 
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ElevenLabsConfig {
@@ -251,10 +250,11 @@ impl Config {
     /// TTS subsystem fields (checked separately — Plan 6 owns TTS).
     pub fn validate_tts(&self) -> Vec<ConfigError> {
         let mut errs = Vec::new();
-        if self.tts.enabled && self.tts.r#override != TtsOverride::Off {
-            if self.tts.elevenlabs.api_key.trim().is_empty() {
-                errs.push(ConfigError::MissingField("tts.elevenlabs.api_key"));
-            }
+        if self.tts.enabled
+            && self.tts.r#override != TtsOverride::Off
+            && self.tts.elevenlabs.api_key.trim().is_empty()
+        {
+            errs.push(ConfigError::MissingField("tts.elevenlabs.api_key"));
         }
         errs
     }

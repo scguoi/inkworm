@@ -47,10 +47,10 @@ impl DataPaths {
         if let Some(v) = nonempty_env("INKWORM_HOME") {
             return Ok(Self::all_under(PathBuf::from(v)));
         }
-        let home = PathBuf::from(
-            nonempty_env("HOME")
-                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "HOME not set"))?,
-        );
+        let home =
+            PathBuf::from(nonempty_env("HOME").ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::NotFound, "HOME not set")
+            })?);
         Ok(Self::default_split(&home))
     }
 
