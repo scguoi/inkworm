@@ -10,6 +10,7 @@ use inkworm::storage::course::{load_course, save_course};
 use inkworm::storage::paths::DataPaths;
 use inkworm::storage::progress::Progress;
 use inkworm::tts::speaker::{NullSpeaker, Speaker};
+use inkworm::ui::course_list::{CourseView, OVER_LEARNED_THRESHOLD};
 use tokio::sync::mpsc;
 
 fn key(code: KeyCode) -> Event {
@@ -87,6 +88,36 @@ fn list_command_opens_overlay_and_sorts_newest_first() {
     assert_eq!(state.items.len(), 2);
     assert_eq!(state.items[0].meta.id, "2026-04-20-course-b"); // newest first
     assert_eq!(state.items[1].meta.id, "2026-04-10-course-a");
+}
+
+#[test]
+fn tab_switches_course_list_from_active_to_mastered_view() {
+    let tmp = tempfile::tempdir().unwrap();
+    let paths = DataPaths::for_tests(tmp.path().to_path_buf());
+    paths.ensure_dirs().unwrap();
+    seed_two_courses(&paths);
+
+    let mut progress = Progress::empty();
+    progress.course_mut("2026-04-10-course-a").completion_count = OVER_LEARNED_THRESHOLD;
+    let mut app = make_app(paths, progress);
+
+    app.open_course_list();
+
+    let state = app.course_list.as_ref().unwrap();
+    assert_eq!(state.view, CourseView::Active);
+    assert_eq!(
+        state.selected_item().unwrap().meta.id,
+        "2026-04-20-course-b"
+    );
+
+    app.on_input(key(KeyCode::Tab));
+
+    let state = app.course_list.as_ref().unwrap();
+    assert_eq!(state.view, CourseView::Mastered);
+    assert_eq!(
+        state.selected_item().unwrap().meta.id,
+        "2026-04-10-course-a"
+    );
 }
 
 #[tokio::test]
