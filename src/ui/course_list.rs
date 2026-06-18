@@ -28,32 +28,11 @@ impl CourseListItem {
     }
 }
 
-/// Which slice of courses the overlay is showing. Mastered (over-learned)
-/// courses live in their own tab so the default `Active` view stays short and
-/// focused on what's still worth practicing. Tab toggles between the two.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CourseView {
-    Active,
-    Mastered,
-}
-
-/// Does `item` belong in `view`? `Active` holds everything not yet
-/// over-learned; `Mastered` holds the over-learned remainder.
-fn item_in_view(item: &CourseListItem, view: CourseView) -> bool {
-    match view {
-        CourseView::Active => !item.is_over_learned(),
-        CourseView::Mastered => item.is_over_learned(),
-    }
-}
-
 #[derive(Debug)]
 pub struct CourseListState {
     pub items: Vec<CourseListItem>,
-    /// Cursor position **within the current view's filtered list**, not into
-    /// `items`. Map it back through [`Self::visible_indices`].
+    /// Cursor position into `items`.
     pub selected: usize,
-    /// Which tab is showing. Opens on the view that holds the active course.
-    pub view: CourseView,
     pub active_course_id: Option<String>,
     /// When the user presses Enter on an over-learned course, store its id
     /// here instead of switching immediately. A second Enter on the same
@@ -93,58 +72,17 @@ impl CourseListState {
         // the input order within each group.
         items.sort_by_key(|item| item.is_over_learned());
 
-        // Open on the view that holds the active course so the cursor lands on
-        // it; if that view turns out empty (e.g. no active course and every
-        // course is mastered), fall back to the one with content.
-        let active_idx = active
-            .as_ref()
-            .and_then(|id| items.iter().position(|m| &m.meta.id == id));
-        let active_count = items.iter().filter(|i| !i.is_over_learned()).count();
-        let mastered_count = items.len() - active_count;
-        let active_is_mastered = active_idx.is_some_and(|i| items[i].is_over_learned());
-        let mut view = if active_is_mastered {
-            CourseView::Mastered
-        } else {
-            CourseView::Active
-        };
-        if view == CourseView::Active && active_count == 0 && mastered_count > 0 {
-            view = CourseView::Mastered;
-        }
-        // Cursor is an index into the chosen view's filtered list.
-        let selected = match active_idx {
-            Some(idx) if item_in_view(&items[idx], view) => items
-                .iter()
-                .take(idx)
-                .filter(|it| item_in_view(it, view))
-                .count(),
-            _ => 0,
+        let selected = match &active {
+            Some(id) => items.iter().position(|m| &m.meta.id == id).unwrap_or(0),
+            None => 0,
         };
         Self {
             items,
             selected,
-            view,
             active_course_id: active,
             over_learned_armed: None,
             over_learned_armed_at: None,
         }
-    }
-
-    /// Indices into `items` that belong to the current view, in display order.
-    pub fn visible_indices(&self) -> Vec<usize> {
-        self.items
-            .iter()
-            .enumerate()
-            .filter(|(_, it)| item_in_view(it, self.view))
-            .map(|(i, _)| i)
-            .collect()
-    }
-
-    /// How many courses the current view shows.
-    pub fn visible_len(&self) -> usize {
-        self.items
-            .iter()
-            .filter(|it| item_in_view(it, self.view))
-            .count()
     }
 
     pub fn active_count(&self) -> usize {
@@ -155,26 +93,9 @@ impl CourseListState {
         self.items.len() - self.active_count()
     }
 
-    /// Whether a Mastered tab exists at all. When false the overlay is a
-    /// single list and Tab does nothing.
+    /// Whether the secondary Mastered section exists at all.
     pub fn has_mastered(&self) -> bool {
         self.items.iter().any(|i| i.is_over_learned())
-    }
-
-    /// Flip between the Active and Mastered tabs. No-op when there are no
-    /// mastered courses (nothing to flip to). Resets the cursor to the top of
-    /// the new view — the two lists are unrelated, so carrying the index over
-    /// would land somewhere arbitrary.
-    pub fn toggle_view(&mut self) {
-        if !self.has_mastered() {
-            return;
-        }
-        self.disarm();
-        self.view = match self.view {
-            CourseView::Active => CourseView::Mastered,
-            CourseView::Mastered => CourseView::Active,
-        };
-        self.selected = 0;
     }
 
     pub fn is_empty(&self) -> bool {
@@ -182,9 +103,7 @@ impl CourseListState {
     }
 
     pub fn selected_item(&self) -> Option<&CourseListItem> {
-        self.visible_indices()
-            .get(self.selected)
-            .map(|&i| &self.items[i])
+        self.items.get(self.selected)
     }
 
     /// Record the first Enter on an over-learned course. A second Enter on
@@ -216,12 +135,11 @@ impl CourseListState {
     /// fling the cursor across the list, with no position read to recover
     /// from. `select_last` is the explicit way to jump.
     pub fn select_next(&mut self) {
-        let len = self.visible_len();
-        if len == 0 {
+        if self.items.is_empty() {
             return;
         }
         self.disarm();
-        if self.selected + 1 < len {
+        if self.selected + 1 < self.items.len() {
             self.selected += 1;
         }
     }
@@ -229,7 +147,7 @@ impl CourseListState {
     /// Move the cursor up one slot. Stops at the first item — see
     /// [`Self::select_next`] for the rationale on dropping wrap-around.
     pub fn select_prev(&mut self) {
-        if self.visible_len() == 0 {
+        if self.items.is_empty() {
             return;
         }
         self.disarm();
@@ -238,7 +156,7 @@ impl CourseListState {
 
     /// Jump straight to the first item. Bound to `Home` in the overlay.
     pub fn select_first(&mut self) {
-        if self.visible_len() == 0 {
+        if self.items.is_empty() {
             return;
         }
         self.disarm();
@@ -247,25 +165,23 @@ impl CourseListState {
 
     /// Jump straight to the last item. Bound to `End` in the overlay.
     pub fn select_last(&mut self) {
-        let len = self.visible_len();
-        if len == 0 {
+        if self.items.is_empty() {
             return;
         }
         self.disarm();
-        self.selected = len - 1;
+        self.selected = self.items.len() - 1;
     }
 
     pub fn page_down(&mut self, page: usize) {
-        let len = self.visible_len();
-        if len == 0 {
+        if self.items.is_empty() {
             return;
         }
         self.disarm();
-        self.selected = (self.selected + page.max(1)).min(len - 1);
+        self.selected = (self.selected + page.max(1)).min(self.items.len() - 1);
     }
 
     pub fn page_up(&mut self, page: usize) {
-        if self.visible_len() == 0 {
+        if self.items.is_empty() {
             return;
         }
         self.disarm();
@@ -358,6 +274,15 @@ fn card_block(title: Line<'static>) -> Block<'static> {
         .title(title)
 }
 
+fn section_heading(label: String) -> Line<'static> {
+    Line::from(Span::styled(
+        label,
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    ))
+}
+
 pub fn render_course_list(frame: &mut Frame, state: &CourseListState) {
     let area = frame.area();
     let width = (area.width * 3 / 4).max(40).min(area.width);
@@ -398,10 +323,47 @@ pub fn render_course_list(frame: &mut Frame, state: &CourseListState) {
         return;
     }
 
-    // Only the current view's courses are shown; the cursor and viewport math
-    // run over this filtered slice.
-    let vis = state.visible_indices();
-    let total_vis = vis.len();
+    let active_count = state.active_count();
+    let mastered_count = state.mastered_count();
+    let mut display_rows: Vec<(Option<usize>, Line<'static>)> = Vec::new();
+    if active_count > 0 {
+        display_rows.push((None, section_heading(format!("Active ({active_count})"))));
+        display_rows.extend(
+            state
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| !item.is_over_learned())
+                .map(|(idx, item)| {
+                    let active = state.active_course_id.as_deref() == Some(item.meta.id.as_str());
+                    let selected = idx == state.selected;
+                    (Some(idx), format_row(item, active, selected, 0))
+                }),
+        );
+    }
+    if mastered_count > 0 {
+        display_rows.push((
+            None,
+            section_heading(format!("Mastered ({mastered_count})")),
+        ));
+        display_rows.extend(
+            state
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| item.is_over_learned())
+                .map(|(idx, item)| {
+                    let active = state.active_course_id.as_deref() == Some(item.meta.id.as_str());
+                    let selected = idx == state.selected;
+                    (Some(idx), format_row(item, active, selected, 0))
+                }),
+        );
+    }
+    let total_rows = display_rows.len();
+    let selected_display_row = display_rows
+        .iter()
+        .position(|(idx, _)| *idx == Some(state.selected))
+        .unwrap_or(0);
 
     // Card chrome around the scrolling list: top border, a relearn-hint row,
     // the key legend, and the bottom border. The list grows to fit the
@@ -410,47 +372,26 @@ pub fn render_course_list(frame: &mut Frame, state: &CourseListState) {
     // count; anything past the window scrolls with a "↓N more" cue.
     let chrome: u16 = 4;
     let max_list_rows = area.height.saturating_sub(chrome + VERTICAL_MARGIN).max(1);
-    let list_rows = (total_vis.max(1) as u16).min(max_list_rows);
+    let list_rows = (total_rows.max(1) as u16).min(max_list_rows);
     let total_height = list_rows + chrome;
     let y = area.height.saturating_sub(total_height) / 2;
     let card = Rect::new(x, y, width, total_height);
 
     let viewport_rows = list_rows as usize;
-    let start = state
-        .selected
-        .saturating_sub(viewport_rows.saturating_sub(1));
-    let end = (start + viewport_rows).min(total_vis);
+    let start = selected_display_row.saturating_sub(viewport_rows.saturating_sub(1));
+    let end = (start + viewport_rows).min(total_rows);
 
-    // Title: tabbed once a Mastered group exists so the user can see and reach
-    // both lists; a plain "Courses (N) · pos/total" otherwise (nothing to tab
-    // to). The current tab is bright, the other dimmed.
-    let header_line = if state.has_mastered() {
-        let cur = Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD);
-        let off = Style::default().fg(Color::DarkGray);
-        let (a_style, m_style) = match state.view {
-            CourseView::Active => (cur, off),
-            CourseView::Mastered => (off, cur),
-        };
-        Line::from(vec![
-            Span::styled(format!(" Active ({}) ", state.active_count()), a_style),
-            Span::styled("│", off),
-            Span::styled(format!(" Mastered ({}) ", state.mastered_count()), m_style),
-        ])
-    } else {
-        title(&format!(
-            "Courses ({}) · {}/{}",
-            state.items.len(),
-            state.selected + 1,
-            total_vis.max(1)
-        ))
-    };
+    let header_line = title(&format!(
+        "Courses ({}) · {}/{}",
+        state.items.len(),
+        state.selected + 1,
+        state.items.len()
+    ));
 
     // Bottom-right cue reports how many rows sit off-screen so the user knows
     // the (capped) list continues beyond the window.
     let above = start;
-    let below = total_vis - end;
+    let below = total_rows - end;
     let mut scroll_parts: Vec<String> = Vec::new();
     if above > 0 {
         scroll_parts.push(format!("↑{above}"));
@@ -474,28 +415,20 @@ pub fn render_course_list(frame: &mut Frame, state: &CourseListState) {
     frame.render_widget(block, card);
 
     let list_area = Rect::new(inner.x, inner.y, inner.width, list_rows);
-    if total_vis == 0 {
-        // Tabbed to an empty view (e.g. every course is mastered, so Active is
-        // empty). Say so rather than leaving a blank card.
-        let msg = match state.view {
-            CourseView::Active => "No active courses — everything's mastered.",
-            CourseView::Mastered => "No mastered courses yet.",
-        };
-        frame.render_widget(
-            Paragraph::new(Span::styled(msg, Style::default().fg(Color::DarkGray))).centered(),
-            list_area,
-        );
-    } else {
-        let items: Vec<ListItem> = (start..end)
-            .map(|p| {
-                let item = &state.items[vis[p]];
+    let items: Vec<ListItem> = (start..end)
+        .map(|p| {
+            let (idx, line) = &display_rows[p];
+            if let Some(idx) = idx {
+                let item = &state.items[*idx];
                 let active = state.active_course_id.as_deref() == Some(item.meta.id.as_str());
-                let selected = p == state.selected;
+                let selected = *idx == state.selected;
                 ListItem::new(format_row(item, active, selected, inner.width))
-            })
-            .collect();
-        frame.render_widget(List::new(items), list_area);
-    }
+            } else {
+                ListItem::new(line.clone())
+            }
+        })
+        .collect();
+    frame.render_widget(List::new(items), list_area);
 
     // Two-step relearn confirmation hint, drawn in the gap row above the
     // standard key legend. Only present when the user has armed an
@@ -515,12 +448,7 @@ pub fn render_course_list(frame: &mut Frame, state: &CourseListState) {
         }
     }
 
-    // Tab hint only when there's a second view to switch to.
-    let hint = if state.has_mastered() {
-        "↑↓ · move   Tab · switch view   Enter · select   Esc · close"
-    } else {
-        "↑↓ · move   Home/End · jump   Enter · switch   Esc · close"
-    };
+    let hint = "↑↓ · move   Home/End · jump   Enter · switch   Esc · close";
     let hint_para = Paragraph::new(Span::styled(hint, Style::default().fg(Color::DarkGray)));
     frame.render_widget(
         hint_para,
@@ -759,72 +687,38 @@ mod tests {
     }
 
     #[test]
-    fn active_over_learned_course_opens_in_mastered_view() {
-        // When the active course is itself over-learned, the overlay opens on
-        // the Mastered tab with the cursor on that course — not strand the
-        // user in an Active view that doesn't contain it.
+    fn selected_tracks_active_after_over_learned_sort() {
+        // Active course should still resolve to its post-sort index, not its
+        // original input index.
         let metas = vec![meta("a", (2026, 4, 10)), meta("b", (2026, 4, 11))];
         let mut p = Progress::empty();
         p.active_course_id = Some("a".into());
-        // "a" is over-learned → sinks to the bottom of `items`.
+        // "a" is over-learned → sinks to the bottom.
         p.course_mut("a").completion_count = OVER_LEARNED_THRESHOLD;
 
         let state = CourseListState::new(metas, &p);
         assert_eq!(state.items[0].meta.id, "b");
         assert_eq!(state.items[1].meta.id, "a");
-        // ...but the view opens on Mastered with "a" selected (index 0 within
-        // that view's filtered list).
-        assert_eq!(state.view, CourseView::Mastered);
-        assert_eq!(state.selected, 0);
+        assert_eq!(state.selected, 1, "selected must follow the active course");
         assert_eq!(state.selected_item().unwrap().meta.id, "a");
     }
 
     #[test]
-    fn defaults_to_active_view_hiding_mastered_courses() {
+    fn active_and_mastered_counts_are_available() {
         let metas = vec![meta("fresh", (2026, 4, 10)), meta("done", (2026, 4, 11))];
         let mut p = Progress::empty();
         p.course_mut("done").completion_count = OVER_LEARNED_THRESHOLD;
         let state = CourseListState::new(metas, &p);
-        assert_eq!(state.view, CourseView::Active);
         assert!(state.has_mastered());
         assert_eq!(state.active_count(), 1);
         assert_eq!(state.mastered_count(), 1);
-        assert_eq!(state.visible_len(), 1);
         assert_eq!(state.selected_item().unwrap().meta.id, "fresh");
     }
 
     #[test]
-    fn toggle_view_switches_between_active_and_mastered() {
-        let metas = vec![meta("fresh", (2026, 4, 10)), meta("done", (2026, 4, 11))];
-        let mut p = Progress::empty();
-        p.course_mut("done").completion_count = OVER_LEARNED_THRESHOLD;
-        let mut state = CourseListState::new(metas, &p);
-        assert_eq!(state.view, CourseView::Active);
-        state.toggle_view();
-        assert_eq!(state.view, CourseView::Mastered);
-        assert_eq!(state.selected_item().unwrap().meta.id, "done");
-        state.toggle_view();
-        assert_eq!(state.view, CourseView::Active);
-        assert_eq!(state.selected_item().unwrap().meta.id, "fresh");
-    }
-
-    #[test]
-    fn toggle_view_is_noop_without_mastered_courses() {
-        let metas = vec![meta("a", (2026, 4, 10)), meta("b", (2026, 4, 11))];
-        let mut state = CourseListState::new(metas, &Progress::empty());
-        assert!(!state.has_mastered());
-        state.toggle_view();
-        assert_eq!(
-            state.view,
-            CourseView::Active,
-            "no Mastered tab to switch to"
-        );
-    }
-
-    #[test]
-    fn navigation_stays_within_current_view() {
-        // 2 active + 3 mastered: End in the Active view stops at index 1, not
-        // run into the mastered courses; after Tab, End reaches the 3rd row.
+    fn navigation_crosses_active_and_mastered_sections() {
+        // 2 active + 3 mastered: End reaches the final mastered row because
+        // both sections are part of one visible list.
         let metas = vec![
             meta("a0", (2026, 4, 1)),
             meta("a1", (2026, 4, 2)),
@@ -837,19 +731,13 @@ mod tests {
             p.course_mut(id).completion_count = OVER_LEARNED_THRESHOLD;
         }
         let mut state = CourseListState::new(metas, &p);
-        assert_eq!(state.view, CourseView::Active);
         state.select_last();
-        assert_eq!(state.selected, 1, "Active view has only 2 rows");
-        assert_eq!(state.selected_item().unwrap().meta.id, "a1");
-        state.toggle_view();
-        assert_eq!(state.selected, 0, "Tab resets the cursor to the top");
-        state.select_last();
-        assert_eq!(state.selected, 2, "Mastered view has 3 rows");
+        assert_eq!(state.selected, 4);
         assert_eq!(state.selected_item().unwrap().meta.id, "m2");
     }
 
     #[test]
-    fn tabs_render_when_mastered_courses_exist() {
+    fn active_and_mastered_sections_render_when_mastered_courses_exist() {
         let metas = vec![meta("fresh", (2026, 4, 10)), meta("done", (2026, 4, 11))];
         let mut p = Progress::empty();
         p.course_mut("done").completion_count = OVER_LEARNED_THRESHOLD;
@@ -857,17 +745,36 @@ mod tests {
         let rendered = render_to_string(80, 14, &state);
         assert!(
             rendered.contains("Active (1)") && rendered.contains("Mastered (1)"),
-            "expected both tabs in the title, got: {rendered:?}"
+            "expected both section headings, got: {rendered:?}"
         );
         assert!(rendered.contains("Title fresh"), "active course visible");
         assert!(
-            !rendered.contains("Title done"),
-            "mastered course must be hidden in the Active view: {rendered:?}"
+            rendered.contains("Title done"),
+            "mastered course must be visible in the same overlay: {rendered:?}"
         );
     }
 
     #[test]
-    fn no_tabs_when_no_mastered_courses() {
+    fn active_and_mastered_tables_render_together() {
+        let metas = vec![meta("fresh", (2026, 4, 10)), meta("done", (2026, 4, 11))];
+        let mut p = Progress::empty();
+        p.course_mut("done").completion_count = OVER_LEARNED_THRESHOLD;
+
+        let state = CourseListState::new(metas, &p);
+        let rendered = render_to_string(80, 14, &state);
+
+        assert!(
+            rendered.contains("Active (1)") && rendered.contains("Mastered (1)"),
+            "expected both table headings, got: {rendered:?}"
+        );
+        assert!(
+            rendered.contains("Title fresh") && rendered.contains("Title done"),
+            "expected active and mastered courses visible together, got: {rendered:?}"
+        );
+    }
+
+    #[test]
+    fn no_mastered_section_when_no_mastered_courses() {
         let metas: Vec<_> = (0..3)
             .map(|i| meta(&format!("c{i}"), (2026, 4, i + 1)))
             .collect();
@@ -875,11 +782,11 @@ mod tests {
         let rendered = render_to_string(80, 14, &state);
         assert!(
             rendered.contains("Courses (3)"),
-            "plain title without tabs, got: {rendered:?}"
+            "plain title without secondary section, got: {rendered:?}"
         );
         assert!(
             !rendered.contains("Mastered"),
-            "no Mastered tab when nothing is mastered: {rendered:?}"
+            "no Mastered section when nothing is mastered: {rendered:?}"
         );
     }
 

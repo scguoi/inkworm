@@ -1722,11 +1722,6 @@ impl App {
                     s.select_last();
                 }
             }
-            KeyCode::Tab | KeyCode::BackTab => {
-                if let Some(s) = &mut self.course_list {
-                    s.toggle_view();
-                }
-            }
             KeyCode::Enter => {
                 let Some(list) = self.course_list.as_ref() else {
                     return;
