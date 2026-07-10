@@ -148,6 +148,96 @@ async fn switch_course_updates_active_and_returns_to_study() {
     );
 }
 
+#[tokio::test]
+async fn over_learned_relearn_confirms_then_starts_full_only_review() {
+    let tmp = tempfile::tempdir().unwrap();
+    let paths = DataPaths::for_tests(tmp.path().to_path_buf());
+    paths.ensure_dirs().unwrap();
+    seed_two_courses(&paths);
+    let course = load_course(&paths.courses_dir, "2026-04-10-course-a").unwrap();
+
+    let mut progress = Progress::empty();
+    progress.active_course_id = Some(course.id.clone());
+    let cp = progress.course_mut(&course.id);
+    cp.completion_count = OVER_LEARNED_THRESHOLD;
+    for sentence in &course.sentences {
+        let sp = cp.sentences.entry(sentence.order.to_string()).or_default();
+        for drill in &sentence.drills {
+            sp.drills
+                .entry(drill.stage.to_string())
+                .or_default()
+                .mastered_count = 1;
+        }
+    }
+    let mut app = make_app(paths.clone(), progress);
+
+    assert!(matches!(app.screen, Screen::CourseList));
+    assert_eq!(app.course_list.as_ref().unwrap().view, CourseView::Mastered);
+
+    // First Enter only arms the confirmation and must not mutate progress.
+    app.on_input(key(KeyCode::Enter));
+    assert!(matches!(app.screen, Screen::CourseList));
+    let first_sentence = &course.sentences[0];
+    let first_full = first_sentence.drills.last().unwrap();
+    assert_eq!(
+        app.study.progress().courses[&course.id].sentences[&first_sentence.order.to_string()]
+            .drills[&first_full.stage.to_string()]
+            .mastered_count,
+        1
+    );
+
+    // Second Enter confirms, resets only final drills, and starts at full.
+    app.on_input(key(KeyCode::Enter));
+    assert!(matches!(app.screen, Screen::Study));
+    assert!(app.study.is_full_only_review());
+    assert_eq!(app.study.current_drill().unwrap().stage, first_full.stage);
+    let cp = app.study.progress().course(&course.id).unwrap();
+    for sentence in &course.sentences {
+        let last_stage = sentence.drills.last().unwrap().stage;
+        for drill in &sentence.drills {
+            let mastered = cp.sentences[&sentence.order.to_string()].drills
+                [&drill.stage.to_string()]
+                .mastered_count;
+            if drill.stage == last_stage {
+                assert_eq!(mastered, 0, "full drill should restart");
+            } else {
+                assert_eq!(mastered, 1, "progressive drill should stay mastered");
+            }
+        }
+    }
+
+    let saved = Progress::load(&paths.progress_file).unwrap();
+    assert_eq!(
+        saved.courses[&course.id].completion_count,
+        OVER_LEARNED_THRESHOLD
+    );
+
+    // Re-selecting during an unfinished full-only pass resumes instead of
+    // clearing the full sentences already completed in this pass.
+    for c in first_full.english.chars() {
+        app.on_input(key(KeyCode::Char(c)));
+    }
+    app.on_input(key(KeyCode::Enter));
+    assert_eq!(
+        app.study.current_sentence().unwrap().order,
+        course.sentences[1].order
+    );
+    app.open_course_list();
+    app.on_input(key(KeyCode::Enter));
+    app.on_input(key(KeyCode::Enter));
+    assert!(matches!(app.screen, Screen::Study));
+    assert_eq!(
+        app.study.current_sentence().unwrap().order,
+        course.sentences[1].order
+    );
+    assert_eq!(
+        app.study.progress().courses[&course.id].sentences[&first_sentence.order.to_string()]
+            .drills[&first_full.stage.to_string()]
+            .mastered_count,
+        1
+    );
+}
+
 #[test]
 fn esc_closes_list_without_changing_active() {
     let tmp = tempfile::tempdir().unwrap();

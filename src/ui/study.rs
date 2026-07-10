@@ -2,7 +2,7 @@ use crate::clock::Clock;
 use crate::judge;
 use crate::storage::course::{Course, Drill, Sentence};
 use crate::storage::mistakes::DrillRef;
-use crate::storage::progress::Progress;
+use crate::storage::progress::{Progress, OVER_LEARNED_THRESHOLD};
 use crate::ui::skeleton::skeleton;
 use chrono::{DateTime, Utc};
 use ratatui::{
@@ -68,6 +68,9 @@ pub struct StudyState {
     /// `feedback == Correct`. Drives the 0.5s auto-advance tick.
     correct_at: Option<DateTime<Utc>>,
     mode: StudyMode,
+    /// Over-learned courses use one accelerated review item per sentence:
+    /// only that sentence's final `full` drill participates in traversal.
+    full_only: bool,
     /// True until the FIRST submit() for the current drill-visit (not the
     /// drill itself: visiting same drill twice in mistakes mode counts as
     /// two visits). Reset by `next_drill` only. `clear_and_restart` and
@@ -80,6 +83,11 @@ pub struct StudyState {
 
 impl StudyState {
     pub fn new(course: Option<Course>, progress: Progress) -> Self {
+        let full_only = course.as_ref().is_some_and(|course| {
+            progress
+                .course(&course.id)
+                .is_some_and(|cp| cp.completion_count >= OVER_LEARNED_THRESHOLD)
+        });
         let mut state = Self {
             course,
             sentence_idx: 0,
@@ -90,6 +98,7 @@ impl StudyState {
             progress,
             correct_at: None,
             mode: StudyMode::Course,
+            full_only,
             first_attempt_pending: true,
         };
         state.resolve_phase();
@@ -124,6 +133,7 @@ impl StudyState {
             progress,
             correct_at: None,
             mode: StudyMode::Mistakes,
+            full_only: false,
             first_attempt_pending: true,
         }
     }
@@ -145,6 +155,9 @@ impl StudyState {
         let cp = self.progress.course(course_id);
         for (si, sentence) in course.sentences.iter().enumerate() {
             for (di, drill) in sentence.drills.iter().enumerate() {
+                if self.full_only && di + 1 != sentence.drills.len() {
+                    continue;
+                }
                 let mastered = cp
                     .and_then(|cp| cp.sentences.get(&sentence.order.to_string()))
                     .and_then(|sp| sp.drills.get(&drill.stage.to_string()))
@@ -158,8 +171,20 @@ impl StudyState {
         }
         // Fully mastered — enter review mode at the first drill instead of
         // locking the user out behind a "Course complete!" overlay on reopen.
-        self.sentence_idx = 0;
-        self.drill_idx = 0;
+        if self.full_only {
+            if let Some((si, sentence)) = course
+                .sentences
+                .iter()
+                .enumerate()
+                .find(|(_, sentence)| !sentence.drills.is_empty())
+            {
+                self.sentence_idx = si;
+                self.drill_idx = sentence.drills.len() - 1;
+            }
+        } else {
+            self.sentence_idx = 0;
+            self.drill_idx = 0;
+        }
     }
 
     pub fn current_drill(&self) -> Option<&Drill> {
@@ -377,7 +402,28 @@ impl StudyState {
             ),
             None => return,
         };
-        let reached_end = if self.drill_idx + 1 < sentence_drills_count {
+        let reached_end = if self.full_only {
+            let next = self
+                .course
+                .as_ref()
+                .and_then(|course| {
+                    course
+                        .sentences
+                        .iter()
+                        .enumerate()
+                        .skip(self.sentence_idx + 1)
+                        .find(|(_, sentence)| !sentence.drills.is_empty())
+                })
+                .map(|(si, sentence)| (si, sentence.drills.len() - 1));
+            if let Some((si, di)) = next {
+                self.sentence_idx = si;
+                self.drill_idx = di;
+                false
+            } else {
+                self.phase = StudyPhase::Complete;
+                true
+            }
+        } else if self.drill_idx + 1 < sentence_drills_count {
             self.drill_idx += 1;
             false
         } else if self.sentence_idx + 1 < sentence_count {
@@ -403,6 +449,10 @@ impl StudyState {
 
     pub fn mode(&self) -> &StudyMode {
         &self.mode
+    }
+
+    pub fn is_full_only_review(&self) -> bool {
+        self.full_only
     }
 
     pub fn set_mode(&mut self, mode: StudyMode) {
@@ -620,8 +670,35 @@ mod tests {
         serde_json::from_str(json).unwrap()
     }
 
+    fn maximal_course() -> Course {
+        let json = include_str!("../../fixtures/courses/good/maximal.json");
+        serde_json::from_str(json).unwrap()
+    }
+
     fn clock() -> FixedClock {
         FixedClock(Utc.with_ymd_and_hms(2026, 4, 21, 12, 0, 0).unwrap())
+    }
+
+    fn mastered_progress(course: &Course, completion_count: u32) -> Progress {
+        let clk = clock();
+        let mut progress = Progress::empty();
+        progress.active_course_id = Some(course.id.clone());
+        let cp = progress.course_mut(&course.id);
+        cp.completion_count = completion_count;
+        cp.last_studied_at = clk.now();
+        for sentence in &course.sentences {
+            let sp = cp.sentences.entry(sentence.order.to_string()).or_default();
+            for drill in &sentence.drills {
+                sp.drills.insert(
+                    drill.stage.to_string(),
+                    DrillProgress {
+                        mastered_count: 1,
+                        last_correct_at: Some(clk.now()),
+                    },
+                );
+            }
+        }
+        progress
     }
 
     #[test]
@@ -862,6 +939,105 @@ mod tests {
         let drill = state.current_drill().unwrap();
         assert_eq!(drill.stage, 1);
         assert_eq!(drill.english, "AI think day");
+    }
+
+    #[test]
+    fn over_learned_review_visits_only_each_sentences_final_drill() {
+        let clk = clock();
+        let course = maximal_course();
+        let mut progress = mastered_progress(&course, OVER_LEARNED_THRESHOLD);
+        progress.reset_course_full_drills(&course);
+        let mut state = StudyState::new(Some(course.clone()), progress);
+
+        assert!(state.is_full_only_review());
+        for sentence in &course.sentences {
+            assert_eq!(state.current_sentence().unwrap().order, sentence.order);
+            let expected = sentence.drills.last().unwrap();
+            assert_eq!(expected.focus, crate::storage::course::Focus::Full);
+            assert_eq!(state.current_drill().unwrap().stage, expected.stage);
+            for c in expected.english.chars() {
+                state.type_char(c);
+            }
+            state.submit(&clk);
+            assert_eq!(*state.feedback(), FeedbackState::Correct);
+            state.advance();
+        }
+
+        assert_eq!(*state.phase(), StudyPhase::Complete);
+        let cp = state.progress().course(&course.id).unwrap();
+        assert_eq!(cp.completion_count, OVER_LEARNED_THRESHOLD + 1);
+        for sentence in &course.sentences {
+            for drill in &sentence.drills {
+                assert_eq!(
+                    cp.sentences[&sentence.order.to_string()].drills[&drill.stage.to_string()]
+                        .mastered_count,
+                    1,
+                    "every progressive drill should remain mastered after full-only review"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn over_learned_review_resumes_at_first_incomplete_full_drill() {
+        let course = fixture_course();
+        let mut progress = mastered_progress(&course, OVER_LEARNED_THRESHOLD);
+        progress.reset_course_full_drills(&course);
+        let first = &course.sentences[0];
+        let first_full = first.drills.last().unwrap();
+        progress
+            .course_mut(&course.id)
+            .sentences
+            .get_mut(&first.order.to_string())
+            .unwrap()
+            .drills
+            .get_mut(&first_full.stage.to_string())
+            .unwrap()
+            .mastered_count = 1;
+
+        let dir = tempfile::tempdir().unwrap();
+        let progress_path = dir.path().join("progress.json");
+        progress.save(&progress_path).unwrap();
+        let reloaded = Progress::load(&progress_path).unwrap();
+        let state = StudyState::new(Some(course.clone()), reloaded);
+
+        assert!(state.is_full_only_review());
+        assert_eq!(
+            state.current_sentence().unwrap().order,
+            course.sentences[1].order
+        );
+        assert_eq!(
+            state.current_drill().unwrap().stage,
+            course.sentences[1].drills.last().unwrap().stage
+        );
+    }
+
+    #[test]
+    fn mistakes_mode_does_not_apply_over_learned_full_only_filter() {
+        let course = fixture_course();
+        let progress = mastered_progress(&course, OVER_LEARNED_THRESHOLD);
+
+        let state = StudyState::new_for_mistakes(Some(course.clone()), progress, 0, 0);
+
+        assert!(!state.is_full_only_review());
+        assert_eq!(
+            state.current_drill().unwrap().stage,
+            course.sentences[0].drills[0].stage
+        );
+    }
+
+    #[test]
+    fn course_below_threshold_keeps_progressive_review_order() {
+        let course = fixture_course();
+        let progress = mastered_progress(&course, OVER_LEARNED_THRESHOLD - 1);
+
+        let state = StudyState::new(Some(course.clone()), progress);
+
+        assert!(!state.is_full_only_review());
+        assert_eq!(
+            state.current_drill().unwrap().stage,
+            course.sentences[0].drills[0].stage
+        );
     }
 
     #[test]

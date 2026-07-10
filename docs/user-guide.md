@@ -68,6 +68,8 @@ inkworm --config /path/to/inkworm-data
 
 在课程列表里用方向键选择课程，按 `Enter` 切换，按 `Esc` 返回。
 
+累计完成 4 次的课程会进入 `Mastered` 分组。再次选择这类课程时，需要在 5 秒内连续按两次 `Enter` 确认。新一轮只练习每个句子最后的 `full` 阶段，不再重复 `keywords`、`skeleton` 和 `clause`。中途退出后，下次会从第一个未完成的 `full` 继续。
+
 删除当前课程：
 
 ```text

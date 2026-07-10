@@ -13,6 +13,9 @@ use crate::storage::atomic::write_atomic;
 use crate::storage::course::{Course, StorageError};
 
 pub const PROGRESS_SCHEMA_VERSION: u32 = 1;
+/// After this many completed course passes, subsequent course-mode study
+/// visits only the final `full` drill of each sentence.
+pub const OVER_LEARNED_THRESHOLD: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Progress {
@@ -115,6 +118,29 @@ impl Progress {
             }
         }
     }
+
+    /// Clear only the final drill of each sentence for an over-learned course.
+    /// Earlier progressive drills stay mastered so a full-only review can
+    /// resume cleanly and still return the course to 100% when finished.
+    pub fn reset_course_full_drills(&mut self, course: &Course) {
+        let Some(cp) = self.courses.get_mut(&course.id) else {
+            return;
+        };
+        for sentence in &course.sentences {
+            let Some(drill) = sentence.drills.last() else {
+                continue;
+            };
+            let Some(dp) = cp
+                .sentences
+                .get_mut(&sentence.order.to_string())
+                .and_then(|sp| sp.drills.get_mut(&drill.stage.to_string()))
+            else {
+                continue;
+            };
+            dp.mastered_count = 0;
+            dp.last_correct_at = None;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,10 +176,39 @@ pub fn course_stats(course: &Course, progress: Option<&CourseProgress>) -> Cours
     }
 }
 
+/// Progress for the accelerated review pass: one final `full` drill per
+/// sentence. Valid courses guarantee that the last drill has `focus=full`.
+pub fn course_full_stats(course: &Course, progress: Option<&CourseProgress>) -> CourseStats {
+    let mut total = 0;
+    let mut completed = 0;
+    for sentence in &course.sentences {
+        let Some(drill) = sentence.drills.last() else {
+            continue;
+        };
+        total += 1;
+        let mastered = progress
+            .and_then(|cp| cp.sentences.get(&sentence.order.to_string()))
+            .and_then(|sp| sp.drills.get(&drill.stage.to_string()))
+            .map_or(0, |dp| dp.mastered_count);
+        if mastered >= 1 {
+            completed += 1;
+        }
+    }
+    CourseStats {
+        total_drills: total,
+        completed_drills: completed,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::TimeZone;
+
+    fn fixture_course() -> Course {
+        let json = include_str!("../../fixtures/courses/good/minimal.json");
+        serde_json::from_str(json).unwrap()
+    }
 
     #[test]
     fn empty_round_trips() {
@@ -233,5 +288,52 @@ mod tests {
         let mut p = Progress::empty();
         p.reset_course_progress("ghost");
         assert!(p.courses.is_empty());
+    }
+
+    #[test]
+    fn reset_course_full_drills_preserves_progressive_drills() {
+        let course = fixture_course();
+        let now = Utc.with_ymd_and_hms(2026, 4, 21, 0, 0, 0).unwrap();
+        let mut p = Progress::empty();
+        let cp = p.course_mut(&course.id);
+        cp.completion_count = OVER_LEARNED_THRESHOLD;
+        cp.last_studied_at = now;
+        for sentence in &course.sentences {
+            let sp = cp.sentences.entry(sentence.order.to_string()).or_default();
+            for drill in &sentence.drills {
+                sp.drills.insert(
+                    drill.stage.to_string(),
+                    DrillProgress {
+                        mastered_count: 1,
+                        last_correct_at: Some(now),
+                    },
+                );
+            }
+        }
+
+        p.reset_course_full_drills(&course);
+
+        let cp = p.course(&course.id).unwrap();
+        for sentence in &course.sentences {
+            let last_stage = sentence.drills.last().unwrap().stage.to_string();
+            let sp = &cp.sentences[&sentence.order.to_string()];
+            for drill in &sentence.drills {
+                let dp = &sp.drills[&drill.stage.to_string()];
+                if drill.stage.to_string() == last_stage {
+                    assert_eq!(dp.mastered_count, 0);
+                    assert_eq!(dp.last_correct_at, None);
+                } else {
+                    assert_eq!(dp.mastered_count, 1);
+                    assert_eq!(dp.last_correct_at, Some(now));
+                }
+            }
+        }
+        assert_eq!(cp.completion_count, OVER_LEARNED_THRESHOLD);
+        assert_eq!(cp.last_studied_at, now);
+        assert_eq!(course_full_stats(&course, Some(cp)).completed_drills, 0);
+        assert_eq!(
+            course_full_stats(&course, Some(cp)).total_drills,
+            course.sentences.len()
+        );
     }
 }

@@ -4,10 +4,9 @@ use crate::storage::course::CourseMeta;
 use crate::storage::progress::Progress;
 use chrono::{DateTime, Utc};
 
-/// At or above this many cumulative completions the course is treated as
-/// "over-learned": it sinks to the bottom of the list, picks up a "✓"
-/// marker, and renders in a muted color to suggest spending time elsewhere.
-pub const OVER_LEARNED_THRESHOLD: u32 = 4;
+/// Kept re-exported here for callers that treat the threshold as part of the
+/// course-list API. The canonical learning-policy constant lives with progress.
+pub use crate::storage::progress::OVER_LEARNED_THRESHOLD;
 
 /// How long an armed (one-Enter) over-learned relearn confirmation lives
 /// before auto-clearing. Short enough that a distracted user doesn't come
@@ -503,7 +502,7 @@ pub fn render_course_list(frame: &mut Frame, state: &CourseListState) {
     if let Some(ref armed_id) = state.over_learned_armed {
         if let Some(item) = state.items.iter().find(|i| &i.meta.id == armed_id) {
             let msg = format!(
-                "✓{} already mastered — press Enter again to relearn",
+                "✓{} mastered — press Enter again for full-only review",
                 item.completion_count
             );
             let para = Paragraph::new(Span::styled(msg, Style::default().fg(Color::Yellow)))

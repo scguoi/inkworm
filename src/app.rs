@@ -205,10 +205,17 @@ impl App {
         if !matches!(self.study.mode(), StudyMode::Course) {
             return;
         }
-        use crate::storage::progress::course_stats;
+        use crate::storage::progress::{course_full_stats, course_stats, OVER_LEARNED_THRESHOLD};
         let needs_picker = match self.study.current_course() {
             Some(course) => {
-                let stats = course_stats(course, self.study.progress().course(&course.id));
+                let progress = self.study.progress().course(&course.id);
+                let full_only =
+                    progress.is_some_and(|cp| cp.completion_count >= OVER_LEARNED_THRESHOLD);
+                let stats = if full_only {
+                    course_full_stats(course, progress)
+                } else {
+                    course_stats(course, progress)
+                };
                 stats.total_drills > 0 && stats.completed_drills == stats.total_drills
             }
             None => false,
@@ -249,8 +256,9 @@ impl App {
         crate::storage::course::load_course(&self.data_paths.courses_dir, id).ok()
     }
 
-    /// Kick off background materialization of the active course's
-    /// bundle mp3s, with concurrency, cancellation, and UI progress.
+    /// Kick off background materialization of the active study pass's bundle
+    /// mp3s, with concurrency, cancellation, and UI progress. Full-only review
+    /// narrows this to one final drill per sentence.
     /// Cheap no-op when no active course or every file is already
     /// locally resident.
     fn spawn_bundle_prewarm(&mut self) {
@@ -258,7 +266,12 @@ impl App {
             return;
         };
         let courses_dir = self.data_paths.courses_dir.clone();
-        let course_owned = course.clone();
+        let mut course_owned = course.clone();
+        if self.study.is_full_only_review() {
+            for sentence in &mut course_owned.sentences {
+                sentence.drills = sentence.drills.last().cloned().into_iter().collect();
+            }
+        }
 
         // Count placeholders before bumping generation, so a 0-placeholder
         // run is a true no-op (no banner flicker, no spawned task).
@@ -610,7 +623,7 @@ impl App {
 
     fn switch_to_course(&mut self, new_id: String) {
         use crate::storage::course::load_course;
-        use crate::storage::progress::course_stats;
+        use crate::storage::progress::{course_full_stats, course_stats, OVER_LEARNED_THRESHOLD};
         // Flush any pending writes before switching so a crash during course
         // load can't lose the previous course's last answers.
         self.flush_all_now();
@@ -623,14 +636,24 @@ impl App {
             }
         };
         self.study.progress_mut().active_course_id = Some(new_id);
-        // Explicit re-entry into a fully-mastered course = relearn: wipe its
-        // drill counts so the bottom strip and course list reflect a fresh
-        // pass. Guarded to this code path (not StudyState::new) so app
-        // startup or mistakes→course transitions don't surprise-erase a
-        // user's completion record.
-        let stats = course_stats(&course, self.study.progress().course(&course.id));
+        // Explicit re-entry into a fully-mastered course = relearn. Courses
+        // below the over-learned threshold restart every progressive drill;
+        // over-learned courses restart only each sentence's final full drill.
+        // Guarded to this code path so startup and mistakes→course transitions
+        // never erase an in-progress pass.
+        let progress = self.study.progress().course(&course.id);
+        let full_only = progress.is_some_and(|cp| cp.completion_count >= OVER_LEARNED_THRESHOLD);
+        let stats = if full_only {
+            course_full_stats(&course, progress)
+        } else {
+            course_stats(&course, progress)
+        };
         if stats.total_drills > 0 && stats.completed_drills == stats.total_drills {
-            self.study.progress_mut().reset_course_progress(&course.id);
+            if full_only {
+                self.study.progress_mut().reset_course_full_drills(&course);
+            } else {
+                self.study.progress_mut().reset_course_progress(&course.id);
+            }
         }
         self.mark_progress_dirty();
         self.flush_all_now();
@@ -1029,6 +1052,7 @@ impl App {
                         }
                     } else {
                         self.study.skip();
+                        self.mark_progress_dirty();
                         self.speak_current_drill();
                     }
                 }
@@ -1301,6 +1325,7 @@ impl App {
             "quit" | "q" => self.quit(),
             "skip" => {
                 self.study.skip();
+                self.mark_progress_dirty();
                 self.speak_current_drill();
             }
             "help" => self.screen = Screen::Help,
@@ -1441,10 +1466,16 @@ impl App {
         frame.render_widget(ratatui::widgets::Paragraph::new(header_line), header_area);
 
         let course_id = self.study.current_course().map(|c| c.id.as_str());
-        let summary = self
-            .study
-            .current_course()
-            .map(|c| crate::ui::shell_chrome::ProgressSummary::compute(c, self.study.progress()));
+        let summary = self.study.current_course().map(|c| {
+            if self.study.is_full_only_review() {
+                crate::ui::shell_chrome::ProgressSummary::compute_full_only(
+                    c,
+                    self.study.progress(),
+                )
+            } else {
+                crate::ui::shell_chrome::ProgressSummary::compute(c, self.study.progress())
+            }
+        });
         let badge = if matches!(self.study.mode(), crate::ui::study::StudyMode::Mistakes) {
             self.mistakes.session_progress().and_then(|p| {
                 let drill_ref = self.mistakes.current_drill_ref()?;
@@ -2369,6 +2400,25 @@ mod startup_picker_tests {
         p
     }
 
+    fn over_learned_full_progress(course: &Course, completed_sentences: usize) -> Progress {
+        let mut p = Progress::empty();
+        p.active_course_id = Some(course.id.clone());
+        let cp = p.course_mut(&course.id);
+        cp.completion_count = crate::storage::progress::OVER_LEARNED_THRESHOLD;
+        cp.last_studied_at = chrono::Utc::now();
+        for sentence in course.sentences.iter().take(completed_sentences) {
+            let full = sentence.drills.last().unwrap();
+            cp.sentences
+                .entry(sentence.order.to_string())
+                .or_default()
+                .drills
+                .entry(full.stage.to_string())
+                .or_default()
+                .mastered_count = 1;
+        }
+        p
+    }
+
     fn build_app(course: Option<Course>, progress: Progress) -> App {
         let (task_tx, _rx) = tokio::sync::mpsc::channel(8);
         let tmp = tempfile::tempdir().expect("tempdir").keep();
@@ -2420,6 +2470,35 @@ mod startup_picker_tests {
         assert!(
             matches!(app.screen, Screen::Study),
             "partial progress should resume in Study, not /list"
+        );
+    }
+
+    #[test]
+    fn completed_full_only_review_opens_picker_at_startup() {
+        let course = minimal_course();
+        let progress = over_learned_full_progress(&course, course.sentences.len());
+
+        let app = build_app(Some(course), progress);
+
+        assert!(matches!(app.screen, Screen::CourseList));
+    }
+
+    #[test]
+    fn partial_full_only_review_resumes_next_full_at_startup() {
+        let course = minimal_course();
+        let progress = over_learned_full_progress(&course, 1);
+
+        let app = build_app(Some(course.clone()), progress);
+
+        assert!(matches!(app.screen, Screen::Study));
+        assert!(app.study.is_full_only_review());
+        assert_eq!(
+            app.study.current_sentence().unwrap().order,
+            course.sentences[1].order
+        );
+        assert_eq!(
+            app.study.current_drill().unwrap().stage,
+            course.sentences[1].drills.last().unwrap().stage
         );
     }
 

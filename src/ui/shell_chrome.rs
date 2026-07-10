@@ -128,14 +128,33 @@ pub struct ProgressSummary {
 
 impl ProgressSummary {
     pub fn compute(course: &Course, progress: &Progress) -> Self {
+        Self::compute_with_mode(course, progress, false)
+    }
+
+    pub fn compute_full_only(course: &Course, progress: &Progress) -> Self {
+        Self::compute_with_mode(course, progress, true)
+    }
+
+    fn compute_with_mode(course: &Course, progress: &Progress, full_only: bool) -> Self {
         let total_sentences = course.sentences.len();
-        let total_drills: usize = course.sentences.iter().map(|s| s.drills.len()).sum();
+        let total_drills: usize = if full_only {
+            course
+                .sentences
+                .iter()
+                .filter(|s| !s.drills.is_empty())
+                .count()
+        } else {
+            course.sentences.iter().map(|s| s.drills.len()).sum()
+        };
 
         let cp = progress.course(&course.id);
         let mut mastered = 0usize;
         let mut first_incomplete: Option<(usize, usize)> = None;
         for (si, sentence) in course.sentences.iter().enumerate() {
             for (di, drill) in sentence.drills.iter().enumerate() {
+                if full_only && di + 1 != sentence.drills.len() {
+                    continue;
+                }
                 let m = cp
                     .and_then(|cp| cp.sentences.get(&sentence.order.to_string()))
                     .and_then(|sp| sp.drills.get(&drill.stage.to_string()))
@@ -172,11 +191,19 @@ impl ProgressSummary {
             .get(s_cur_idx)
             .map(|s| s.drills.len())
             .unwrap_or(0);
+        let drill = if full_only {
+            (
+                usize::from(drills_in_current > 0),
+                usize::from(drills_in_current > 0),
+            )
+        } else {
+            (d_cur_idx + 1, drills_in_current)
+        };
 
         Self {
             pct,
             sentence: (s_cur_idx + 1, total_sentences),
-            drill: (d_cur_idx + 1, drills_in_current),
+            drill,
         }
     }
 }
@@ -417,6 +444,44 @@ mod tests {
         let s = ProgressSummary::compute(&course, &progress);
         let expected = (100 / total) as u8;
         assert_eq!(s.pct, expected);
+    }
+
+    #[test]
+    fn summary_full_only_counts_one_final_drill_per_sentence() {
+        let course = fixture_course();
+        let mut progress = Progress::empty();
+        let cp = progress.course_mut(&course.id);
+        for sentence in &course.sentences {
+            let sp = cp.sentences.entry(sentence.order.to_string()).or_default();
+            for drill in sentence.drills.iter().take(sentence.drills.len() - 1) {
+                sp.drills.insert(
+                    drill.stage.to_string(),
+                    DrillProgress {
+                        mastered_count: 1,
+                        last_correct_at: None,
+                    },
+                );
+            }
+        }
+        let first = &course.sentences[0];
+        let first_full = first.drills.last().unwrap();
+        cp.sentences
+            .get_mut(&first.order.to_string())
+            .unwrap()
+            .drills
+            .insert(
+                first_full.stage.to_string(),
+                DrillProgress {
+                    mastered_count: 1,
+                    last_correct_at: None,
+                },
+            );
+
+        let s = ProgressSummary::compute_full_only(&course, &progress);
+
+        assert_eq!(s.pct, 20);
+        assert_eq!(s.sentence, (2, 5));
+        assert_eq!(s.drill, (1, 1));
     }
 
     #[test]
