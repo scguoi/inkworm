@@ -13,7 +13,19 @@ inkworm 是一个终端里的中英对照打字练习工具。它面向中文母
 
 ## 安装
 
-从源码安装：
+每个 GitHub Release 都提供以下预编译包：
+
+| 系统 | x86_64 | ARM64 |
+|---|---|---|
+| macOS | `x86_64-apple-darwin.tar.gz` | `aarch64-apple-darwin.tar.gz` |
+| Linux | `x86_64-unknown-linux-gnu.tar.gz` | `aarch64-unknown-linux-gnu.tar.gz` |
+| Windows | `x86_64-pc-windows-msvc.zip` | `aarch64-pc-windows-msvc.zip` |
+
+从 [GitHub Releases](https://github.com/scguoi/inkworm/releases) 下载与系统和 CPU
+架构匹配的包，解压后将 `inkworm`（Windows 上为 `inkworm.exe`）放入 `PATH`。
+Linux 运行时需要 ALSA 库（Debian/Ubuntu 软件包名为 `libasound2`）。
+
+也可以从源码安装：
 
 ```sh
 cargo install --path . --force
