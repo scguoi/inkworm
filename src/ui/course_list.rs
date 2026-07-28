@@ -2,7 +2,7 @@
 
 use crate::storage::course::CourseMeta;
 use crate::storage::progress::Progress;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Utc};
 
 /// Kept re-exported here for callers that treat the threshold as part of the
 /// course-list API. The canonical learning-policy constant lives with progress.
@@ -19,6 +19,7 @@ pub struct CourseListItem {
     pub meta: CourseMeta,
     pub completed_drills: usize,
     pub completion_count: u32,
+    pub last_studied_at: DateTime<Utc>,
 }
 
 impl CourseListItem {
@@ -51,13 +52,15 @@ pub struct CourseListState {
     /// Cursor position **within the current view's filtered list**, not into
     /// `items`. Map it back through [`Self::visible_indices`].
     pub selected: usize,
-    /// Which tab is showing. Opens on the view that holds the active course.
+    /// Which tab is showing. Active opens on the current course; Mastered
+    /// opens on its oldest-study recommendation.
     pub view: CourseView,
     pub active_course_id: Option<String>,
     /// When the user presses Enter on an over-learned course, store its id
     /// here instead of switching immediately. A second Enter on the same
-    /// id confirms the relearn; any cursor move clears it; the on-tick
-    /// expiry check clears it after [`OVER_LEARNED_ARM_TTL_MS`].
+    /// id confirms the relearn; any navigation action in a non-empty view
+    /// clears it; the on-tick expiry check clears it after
+    /// [`OVER_LEARNED_ARM_TTL_MS`].
     pub over_learned_armed: Option<String>,
     /// Timestamp paired with `over_learned_armed`. Read by
     /// [`Self::disarm_if_expired`] to time out stale prompts.
@@ -81,20 +84,30 @@ impl CourseListState {
                     })
                     .unwrap_or(0);
                 let completion_count = cp.map_or(0, |cp| cp.completion_count);
+                let last_studied_at =
+                    cp.map_or_else(DateTime::<Utc>::default, |cp| cp.last_studied_at);
                 CourseListItem {
                     meta,
                     completed_drills: completed,
                     completion_count,
+                    last_studied_at,
                 }
             })
             .collect();
-        // Stable sort sinks over-learned items to the bottom while preserving
-        // the input order within each group.
-        items.sort_by_key(|item| item.is_over_learned());
+        // Active courses retain the input order (newest creation first).
+        // Mastered courses sort oldest study first so the least-recently
+        // reviewed material is the first recommendation. Stable ties retain
+        // the input order.
+        items.sort_by(|a, b| match (a.is_over_learned(), b.is_over_learned()) {
+            (false, false) => std::cmp::Ordering::Equal,
+            (false, true) => std::cmp::Ordering::Less,
+            (true, false) => std::cmp::Ordering::Greater,
+            (true, true) => a.last_studied_at.cmp(&b.last_studied_at),
+        });
 
-        // Open on the view that holds the active course so the cursor lands on
-        // it; if that view turns out empty (e.g. no active course and every
-        // course is mastered), fall back to the one with content.
+        // Open on the view that holds the active course; if that view turns
+        // out empty (e.g. no active course and every course is mastered),
+        // fall back to the one with content.
         let active_idx = active
             .as_ref()
             .and_then(|id| items.iter().position(|m| &m.meta.id == id));
@@ -109,14 +122,19 @@ impl CourseListState {
         if view == CourseView::Active && active_count == 0 && mastered_count > 0 {
             view = CourseView::Mastered;
         }
-        // Cursor is an index into the chosen view's filtered list.
-        let selected = match active_idx {
-            Some(idx) if item_in_view(&items[idx], view) => items
-                .iter()
-                .take(idx)
-                .filter(|it| item_in_view(it, view))
-                .count(),
-            _ => 0,
+        // Active keeps the cursor on the current course. Mastered deliberately
+        // starts at its first (least-recently-studied) item, even when the
+        // active course is elsewhere in that view.
+        let selected = match view {
+            CourseView::Mastered => 0,
+            CourseView::Active => match active_idx {
+                Some(idx) if item_in_view(&items[idx], view) => items
+                    .iter()
+                    .take(idx)
+                    .filter(|it| item_in_view(it, view))
+                    .count(),
+                _ => 0,
+            },
         };
         Self {
             items,
@@ -210,29 +228,30 @@ impl CourseListState {
         }
     }
 
-    /// Move the cursor down one slot. Stops at the last item — does NOT
-    /// wrap back to the top. Wrapping made stray keypresses at the bottom
-    /// fling the cursor across the list, with no position read to recover
-    /// from. `select_last` is the explicit way to jump.
+    /// Move the cursor down one slot, wrapping from the last visible item to
+    /// the first item in the current view.
     pub fn select_next(&mut self) {
         let len = self.visible_len();
         if len == 0 {
             return;
         }
         self.disarm();
-        if self.selected + 1 < len {
-            self.selected += 1;
-        }
+        self.selected = (self.selected + 1) % len;
     }
 
-    /// Move the cursor up one slot. Stops at the first item — see
-    /// [`Self::select_next`] for the rationale on dropping wrap-around.
+    /// Move the cursor up one slot, wrapping from the first visible item to
+    /// the last item in the current view.
     pub fn select_prev(&mut self) {
-        if self.visible_len() == 0 {
+        let len = self.visible_len();
+        if len == 0 {
             return;
         }
         self.disarm();
-        self.selected = self.selected.saturating_sub(1);
+        self.selected = if self.selected == 0 {
+            len - 1
+        } else {
+            self.selected - 1
+        };
     }
 
     /// Jump straight to the first item. Bound to `Home` in the overlay.
@@ -295,8 +314,21 @@ fn format_row(item: &CourseListItem, active: bool, selected: bool, width: u16) -
     let marker = if active { "▸ " } else { "  " };
     let title = item.meta.title.clone();
     let progress_txt = format!("{}/{}", item.completed_drills, item.meta.total_drills);
-    let date_txt = item.meta.created_at.format("%Y-%m-%d").to_string();
     let over_learned = item.is_over_learned();
+    let date_txt = if over_learned {
+        if item.last_studied_at == DateTime::<Utc>::default() {
+            "last unknown".to_string()
+        } else {
+            format!(
+                "last {}",
+                item.last_studied_at
+                    .with_timezone(&Local)
+                    .format("%Y-%m-%d")
+            )
+        }
+    } else {
+        item.meta.created_at.format("%Y-%m-%d").to_string()
+    };
     let completion_mark = format!("  ✓{}", item.completion_count);
 
     // The foreground encodes status (Green = active, DarkGray = over-learned,
@@ -498,7 +530,7 @@ pub fn render_course_list(frame: &mut Frame, state: &CourseListState) {
 
     // Two-step relearn confirmation hint, drawn in the gap row above the
     // standard key legend. Only present when the user has armed an
-    // over-learned course with one Enter; any cursor move clears it.
+    // over-learned course with one Enter; navigation clears it.
     if let Some(ref armed_id) = state.over_learned_armed {
         if let Some(item) = state.items.iter().find(|i| &i.meta.id == armed_id) {
             let msg = format!(
@@ -573,26 +605,54 @@ mod tests {
     }
 
     #[test]
-    fn select_next_stops_at_last() {
-        // ↑↓ used to wrap; the loop felt jarring on a 10-course list because
-        // a stray keypress at the bottom flung the cursor back to the top.
-        // Borders should hold; Home/End is the explicit way to teleport.
+    fn select_next_wraps_from_last_to_first() {
         let metas = vec![meta("a", (2026, 4, 10)), meta("b", (2026, 4, 20))];
         let mut state = CourseListState::new(metas, &Progress::empty());
-        state.selected = 0;
+        state.selected = 1;
         state.select_next();
-        assert_eq!(state.selected, 1);
-        state.select_next();
-        assert_eq!(state.selected, 1, "must not wrap past last");
+        assert_eq!(state.selected, 0);
     }
 
     #[test]
-    fn select_prev_stops_at_first() {
+    fn select_prev_wraps_from_first_to_last() {
         let metas = vec![meta("a", (2026, 4, 10)), meta("b", (2026, 4, 20))];
         let mut state = CourseListState::new(metas, &Progress::empty());
         state.selected = 0;
         state.select_prev();
-        assert_eq!(state.selected, 0, "must not wrap past first");
+        assert_eq!(state.selected, 1);
+    }
+
+    #[test]
+    fn wrap_navigation_is_safe_for_empty_and_single_item_views() {
+        let mut empty = CourseListState::new(vec![], &Progress::empty());
+        empty.select_prev();
+        empty.select_next();
+        assert_eq!(empty.selected, 0);
+
+        let metas = vec![meta("only", (2026, 4, 10))];
+        let mut p = Progress::empty();
+        p.course_mut("only").completion_count = OVER_LEARNED_THRESHOLD;
+        let mut single = CourseListState::new(metas, &p);
+        let now = Utc.with_ymd_and_hms(2026, 5, 14, 12, 0, 0).unwrap();
+
+        single.arm_over_learned("only".into(), now);
+        single.select_prev();
+        assert_eq!(single.selected, 0);
+        assert!(single.over_learned_armed.is_none());
+        assert!(single.over_learned_armed_at.is_none());
+
+        single.arm_over_learned("only".into(), now);
+        single.select_next();
+        assert_eq!(single.selected, 0);
+        assert!(single.over_learned_armed.is_none());
+        assert!(single.over_learned_armed_at.is_none());
+
+        single.toggle_view();
+        assert_eq!(single.view, CourseView::Active);
+        assert_eq!(single.visible_len(), 0);
+        single.select_prev();
+        single.select_next();
+        assert_eq!(single.selected, 0);
     }
 
     #[test]
@@ -657,9 +717,9 @@ mod tests {
     }
 
     #[test]
-    fn cursor_movement_clears_over_learned_armed() {
-        // Any cursor change must cancel a pending relearn confirmation — the
-        // user is no longer pointing at the course they armed.
+    fn navigation_actions_clear_over_learned_armed() {
+        // Any navigation action in a non-empty view must cancel a pending
+        // relearn confirmation.
         let metas = vec![meta("a", (2026, 4, 10)), meta("b", (2026, 4, 20))];
         let mut state = CourseListState::new(metas, &Progress::empty());
         let now = Utc.with_ymd_and_hms(2026, 5, 14, 12, 0, 0).unwrap();
@@ -758,10 +818,41 @@ mod tests {
     }
 
     #[test]
+    fn mastered_courses_sort_oldest_last_studied_first_and_select_oldest() {
+        let metas = vec![
+            meta("recent", (2026, 6, 1)),
+            meta("fresh", (2026, 5, 1)),
+            meta("oldest", (2026, 4, 1)),
+            meta("middle", (2026, 3, 1)),
+        ];
+        let mut p = Progress::empty();
+        p.active_course_id = Some("recent".into());
+        for (id, date) in [
+            ("recent", (2026, 6, 10)),
+            ("oldest", (2026, 1, 10)),
+            ("middle", (2026, 3, 10)),
+        ] {
+            let cp = p.course_mut(id);
+            cp.completion_count = OVER_LEARNED_THRESHOLD;
+            cp.last_studied_at = Utc
+                .with_ymd_and_hms(date.0, date.1, date.2, 0, 0, 0)
+                .unwrap();
+        }
+
+        let state = CourseListState::new(metas, &p);
+        let order: Vec<&str> = state.items.iter().map(|i| i.meta.id.as_str()).collect();
+
+        assert_eq!(order, vec!["fresh", "oldest", "middle", "recent"]);
+        assert_eq!(state.view, CourseView::Mastered);
+        assert_eq!(state.selected, 0);
+        assert_eq!(state.selected_item().unwrap().meta.id, "oldest");
+    }
+
+    #[test]
     fn active_over_learned_course_opens_in_mastered_view() {
         // When the active course is itself over-learned, the overlay opens on
-        // the Mastered tab with the cursor on that course — not strand the
-        // user in an Active view that doesn't contain it.
+        // Mastered rather than an Active view that does not contain it. With
+        // only one mastered course, that recommendation is also the active one.
         let metas = vec![meta("a", (2026, 4, 10)), meta("b", (2026, 4, 11))];
         let mut p = Progress::empty();
         p.active_course_id = Some("a".into());
@@ -771,8 +862,6 @@ mod tests {
         let state = CourseListState::new(metas, &p);
         assert_eq!(state.items[0].meta.id, "b");
         assert_eq!(state.items[1].meta.id, "a");
-        // ...but the view opens on Mastered with "a" selected (index 0 within
-        // that view's filtered list).
         assert_eq!(state.view, CourseView::Mastered);
         assert_eq!(state.selected, 0);
         assert_eq!(state.selected_item().unwrap().meta.id, "a");
@@ -822,8 +911,8 @@ mod tests {
 
     #[test]
     fn navigation_stays_within_current_view() {
-        // 2 active + 3 mastered: End in the Active view stops at index 1, not
-        // run into the mastered courses; after Tab, End reaches the 3rd row.
+        // Wrap-around is scoped to the filtered view: Active never enters
+        // Mastered, and Mastered never enters Active.
         let metas = vec![
             meta("a0", (2026, 4, 1)),
             meta("a1", (2026, 4, 2)),
@@ -840,11 +929,17 @@ mod tests {
         state.select_last();
         assert_eq!(state.selected, 1, "Active view has only 2 rows");
         assert_eq!(state.selected_item().unwrap().meta.id, "a1");
+        state.select_next();
+        assert_eq!(state.selected_item().unwrap().meta.id, "a0");
+        state.select_prev();
+        assert_eq!(state.selected_item().unwrap().meta.id, "a1");
         state.toggle_view();
         assert_eq!(state.selected, 0, "Tab resets the cursor to the top");
-        state.select_last();
+        state.select_prev();
         assert_eq!(state.selected, 2, "Mastered view has 3 rows");
         assert_eq!(state.selected_item().unwrap().meta.id, "m2");
+        state.select_next();
+        assert_eq!(state.selected_item().unwrap().meta.id, "m0");
     }
 
     #[test]
@@ -933,8 +1028,7 @@ mod tests {
     #[test]
     fn header_shows_position_indicator() {
         // The header gives the user a position read ("3/10") so they always
-        // know where they are in the list — borders no longer wrap, so a
-        // sense of place replaces the implicit cycle as the orientation cue.
+        // know where they are in the list, including after wrap-around.
         use ratatui::backend::TestBackend;
         use ratatui::Terminal;
         let backend = TestBackend::new(80, 12);
@@ -982,7 +1076,7 @@ mod tests {
             .collect();
         assert!(
             rendered.contains("Home/End"),
-            "hint row must surface Home/End so users have an escape hatch now that ↑↓ no longer wraps, got: {rendered:?}"
+            "hint row must surface Home/End for direct boundary jumps, got: {rendered:?}"
         );
     }
 
@@ -1076,6 +1170,28 @@ mod tests {
     }
 
     #[test]
+    fn wrap_navigation_moves_viewport_between_first_and_last_pages() {
+        let metas: Vec<_> = (0..10)
+            .map(|i| meta(&format!("m{i}"), (2026, 4, i + 1)))
+            .collect();
+        let mut p = Progress::empty();
+        for i in 0..10 {
+            p.course_mut(&format!("m{i}")).completion_count = OVER_LEARNED_THRESHOLD;
+        }
+        let mut state = CourseListState::new(metas, &p);
+
+        state.select_prev();
+        let bottom = render_to_string(80, 12, &state);
+        assert!(bottom.contains("Title m9"));
+        assert!(bottom.contains("↑4"));
+
+        state.select_next();
+        let top = render_to_string(80, 12, &state);
+        assert!(top.contains("Title m0"));
+        assert!(top.contains("↓4 more"));
+    }
+
+    #[test]
     fn rows_keep_progress_date_and_badge_columns() {
         // Direction "1" was chosen on the condition that every row keeps its
         // trailing info — the card framing must not drop the progress/date/
@@ -1097,6 +1213,68 @@ mod tests {
             rendered.contains("✓2"),
             "completion badge must stay: {rendered:?}"
         );
+    }
+
+    #[test]
+    fn mastered_row_shows_last_studied_date_instead_of_created_date() {
+        let metas = vec![meta("mastered", (2026, 4, 21))];
+        let mut p = Progress::empty();
+        let cp = p.course_mut("mastered");
+        cp.completion_count = OVER_LEARNED_THRESHOLD;
+        let studied_at = Utc.with_ymd_and_hms(2026, 7, 8, 12, 0, 0).unwrap();
+        cp.last_studied_at = studied_at;
+
+        let state = CourseListState::new(metas, &p);
+        let rendered = render_to_string(80, 12, &state);
+        let expected = format!(
+            "last {}",
+            studied_at.with_timezone(&Local).format("%Y-%m-%d")
+        );
+
+        assert!(
+            rendered.contains(&expected),
+            "Mastered row should show its last study date: {rendered:?}"
+        );
+        assert!(
+            !rendered.contains("2026-04-21"),
+            "Mastered row should replace the creation date: {rendered:?}"
+        );
+    }
+
+    #[test]
+    fn mastered_row_marks_missing_last_studied_date_as_unknown() {
+        let metas = vec![meta("legacy-mastered", (2026, 4, 21))];
+        let mut p = Progress::empty();
+        p.course_mut("legacy-mastered").completion_count = OVER_LEARNED_THRESHOLD;
+
+        let state = CourseListState::new(metas, &p);
+        let rendered = render_to_string(80, 12, &state);
+
+        assert!(
+            rendered.contains("last unknown"),
+            "Legacy Mastered rows should not claim an epoch date: {rendered:?}"
+        );
+        assert!(!rendered.contains("1970-01-01"));
+    }
+
+    #[test]
+    fn narrow_mastered_row_keeps_last_date_and_completion_badge() {
+        let metas = vec![meta("mastered-with-a-long-title", (2026, 4, 21))];
+        let mut p = Progress::empty();
+        let cp = p.course_mut("mastered-with-a-long-title");
+        cp.completion_count = OVER_LEARNED_THRESHOLD;
+        let studied_at = Utc.with_ymd_and_hms(2026, 7, 8, 12, 0, 0).unwrap();
+        cp.last_studied_at = studied_at;
+
+        let state = CourseListState::new(metas, &p);
+        let rendered = render_to_string(40, 12, &state);
+        let expected = format!(
+            "last {}",
+            studied_at.with_timezone(&Local).format("%Y-%m-%d")
+        );
+
+        assert!(rendered.contains(&expected));
+        assert!(rendered.contains("✓4"));
     }
 
     #[test]

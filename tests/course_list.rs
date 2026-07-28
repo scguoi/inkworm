@@ -120,6 +120,57 @@ fn tab_switches_course_list_from_active_to_mastered_view() {
     );
 }
 
+#[test]
+fn arrow_keys_wrap_within_mastered_view() {
+    let tmp = tempfile::tempdir().unwrap();
+    let paths = DataPaths::for_tests(tmp.path().to_path_buf());
+    paths.ensure_dirs().unwrap();
+    seed_two_courses(&paths);
+
+    let mut progress = Progress::empty();
+    for (id, studied_at) in [
+        ("2026-04-10-course-a", "2026-04-01T00:00:00Z"),
+        ("2026-04-20-course-b", "2026-04-02T00:00:00Z"),
+    ] {
+        let cp = progress.course_mut(id);
+        cp.completion_count = OVER_LEARNED_THRESHOLD;
+        cp.last_studied_at = studied_at.parse().unwrap();
+    }
+    let mut app = make_app(paths, progress);
+    app.open_course_list();
+
+    let state = app.course_list.as_ref().unwrap();
+    assert_eq!(state.view, CourseView::Mastered);
+    assert_eq!(
+        state.selected_item().unwrap().meta.id,
+        "2026-04-10-course-a"
+    );
+
+    app.on_input(key(KeyCode::Up));
+    assert_eq!(
+        app.course_list
+            .as_ref()
+            .unwrap()
+            .selected_item()
+            .unwrap()
+            .meta
+            .id,
+        "2026-04-20-course-b"
+    );
+
+    app.on_input(key(KeyCode::Down));
+    assert_eq!(
+        app.course_list
+            .as_ref()
+            .unwrap()
+            .selected_item()
+            .unwrap()
+            .meta
+            .id,
+        "2026-04-10-course-a"
+    );
+}
+
 #[tokio::test]
 async fn switch_course_updates_active_and_returns_to_study() {
     let tmp = tempfile::tempdir().unwrap();
