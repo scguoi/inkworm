@@ -1,5 +1,19 @@
 # inkworm — project conventions
 
+## Local iteration workflow
+
+After completing and verifying any user-facing behavior iteration, install the
+current workspace locally without waiting for the user to ask:
+
+```
+cargo install --path . --force
+```
+
+Do this even when the iteration is not being released yet, so
+`~/.cargo/bin/inkworm` always contains the latest test-passing behavior for
+hands-on evaluation. Verify the installed command after installation and report
+the result to the user.
+
 ## Release workflow
 
 After creating a new GitHub release (e.g. `gh release create vX.Y.Z …`),
