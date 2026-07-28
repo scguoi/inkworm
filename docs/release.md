@@ -18,13 +18,19 @@ rg '^version =' Cargo.toml
 
 ## 创建 GitHub Release
 
-示例：
+创建并推送版本 tag：
 
 ```sh
-gh release create vX.Y.Z
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
-按实际发布内容补充 release notes。
+`Release` workflow 会为 macOS、Linux 和 Windows 的 x86_64/ARM64 架构构建
+安装包，全部构建成功后再创建 GitHub Release 并生成 release notes。Windows
+使用 `.zip`，其他平台使用 `.tar.gz`。
+
+在 GitHub Actions 中确认 `Release` workflow 成功，并检查该版本包含六个安装包。
+需要补充说明时，编辑自动生成的 release notes。
 
 ## 发布后本地安装
 
