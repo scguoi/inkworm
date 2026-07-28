@@ -254,10 +254,10 @@ impl StudyState {
         self.input.pop();
     }
 
-    /// True iff the input has reached (or overshot) the target's char count
-    /// while still in the Typing phase. The caller uses this to auto-submit
-    /// without an explicit Enter once every position in the skeleton has been
-    /// filled.
+    /// True iff the normalized input has reached (or overshot) the normalized
+    /// target's char count while still in the Typing phase. The caller uses
+    /// this to auto-submit without an explicit Enter once every significant
+    /// position in the skeleton has been filled.
     pub fn is_input_at_target(&self) -> bool {
         if self.phase != StudyPhase::Active {
             return false;
@@ -268,8 +268,9 @@ impl StudyState {
         let Some(drill) = self.current_drill() else {
             return false;
         };
-        let target_len = drill.english.chars().count();
-        target_len > 0 && self.input.chars().count() >= target_len
+        let target_len = judge::normalize(&drill.english).chars().count();
+        let input_len = judge::normalize(&self.input).chars().count();
+        target_len > 0 && input_len >= target_len
     }
 
     pub fn submit(&mut self, clock: &dyn Clock) -> (Option<SubmitOutcome>, Option<SubmitTick>) {
@@ -829,6 +830,23 @@ mod tests {
         // Overshoot keeps it true so paste-style overflow still triggers.
         state.type_char('!');
         assert!(state.is_input_at_target());
+    }
+
+    #[test]
+    fn omitted_non_ascii_punctuation_reaches_target_and_submits_correctly() {
+        let clk = clock();
+        let mut course = fixture_course();
+        course.sentences[0].drills[0].english =
+            "The answer is simple — clear, short, and useful.".into();
+        let mut state = StudyState::new(Some(course), Progress::empty());
+
+        for c in "The answer is simple clear, short, and useful".chars() {
+            state.type_char(c);
+        }
+
+        assert!(state.is_input_at_target());
+        state.submit(&clk);
+        assert_eq!(*state.feedback(), FeedbackState::Correct);
     }
 
     #[test]
