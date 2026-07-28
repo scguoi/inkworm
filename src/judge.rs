@@ -5,11 +5,28 @@
 //!   - trim
 //!   - collapse consecutive whitespace to a single space
 //!   - replace curly quotes with straight (\' \")
+//!   - ignore non-ASCII Unicode punctuation
 //!   - strip all trailing . ! ? (and any trailing spaces before/between them)
 //!
 //! Not normalized:
-//!   - inner punctuation
+//!   - inner ASCII punctuation
 //!   - contractions (I've ≠ I have)
+
+use unicode_general_category::{get_general_category, GeneralCategory};
+
+fn is_non_ascii_punctuation(c: char) -> bool {
+    !c.is_ascii()
+        && matches!(
+            get_general_category(c),
+            GeneralCategory::ClosePunctuation
+                | GeneralCategory::ConnectorPunctuation
+                | GeneralCategory::DashPunctuation
+                | GeneralCategory::FinalPunctuation
+                | GeneralCategory::InitialPunctuation
+                | GeneralCategory::OpenPunctuation
+                | GeneralCategory::OtherPunctuation
+        )
+}
 
 pub fn normalize(s: &str) -> String {
     let replaced: String = s
@@ -17,6 +34,7 @@ pub fn normalize(s: &str) -> String {
         .map(|c| match c {
             '\u{2018}' | '\u{2019}' => '\'',
             '\u{201C}' | '\u{201D}' => '"',
+            c if is_non_ascii_punctuation(c) => ' ',
             _ => c,
         })
         .collect();
@@ -73,6 +91,13 @@ mod tests {
         // inner punctuation matters
         ("hello, world", "hello world", false),
         ("hello world", "hello, world", false),
+        // non-ASCII punctuation is ignored
+        ("hello world", "hello — world", true),
+        ("wait what", "wait—what", true),
+        ("hello world", "hello，world。", true),
+        // non-ASCII letters and symbols still matter
+        ("cafe", "café", false),
+        ("5", "5€", false),
         // whitespace: leading/trailing/collapsed
         ("  hello  ", "hello", true),
         ("hello  world", "hello world", true),

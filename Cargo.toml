@@ -33,6 +33,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"
 whoami = "1"
 fs2 = "0.4"
+unicode-general-category = "1.1"
 
 # TTS core: cache key + WAV I/O
 base64 = "0.22"
