@@ -6,6 +6,7 @@
 //!   - collapse consecutive whitespace to a single space
 //!   - replace curly quotes with straight (\' \")
 //!   - ignore non-ASCII Unicode punctuation
+//!   - ignore standalone ASCII dash separators (` - ` and ` -- `)
 //!   - strip all trailing . ! ? (and any trailing spaces before/between them)
 //!
 //! Not normalized:
@@ -28,13 +29,35 @@ fn is_non_ascii_punctuation(c: char) -> bool {
         )
 }
 
+fn is_standalone_ascii_dash(chars: &[char], index: usize) -> bool {
+    if chars[index] != '-' {
+        return false;
+    }
+
+    let mut run_start = index;
+    while run_start > 0 && chars[run_start - 1] == '-' {
+        run_start -= 1;
+    }
+    let mut run_end = index + 1;
+    while run_end < chars.len() && chars[run_end] == '-' {
+        run_end += 1;
+    }
+
+    let has_left_boundary = run_start == 0 || chars[run_start - 1].is_whitespace();
+    let has_right_boundary = run_end == chars.len() || chars[run_end].is_whitespace();
+    has_left_boundary && has_right_boundary
+}
+
 pub fn normalize(s: &str) -> String {
-    let replaced: String = s
-        .chars()
-        .map(|c| match c {
+    let chars: Vec<char> = s.chars().collect();
+    let replaced: String = chars
+        .iter()
+        .enumerate()
+        .map(|(index, &c)| match c {
             '\u{2018}' | '\u{2019}' => '\'',
             '\u{201C}' | '\u{201D}' => '"',
             c if is_non_ascii_punctuation(c) => ' ',
+            '-' if is_standalone_ascii_dash(&chars, index) => ' ',
             _ => c,
         })
         .collect();
@@ -95,6 +118,9 @@ mod tests {
         ("hello world", "hello — world", true),
         ("wait what", "wait—what", true),
         ("hello world", "hello，world。", true),
+        // standalone ASCII dashes can stand in for a typographic dash
+        ("hello - world", "hello — world", true),
+        ("hello -- world", "hello — world", true),
         // non-ASCII letters and symbols still matter
         ("cafe", "café", false),
         ("5", "5€", false),

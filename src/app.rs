@@ -1,3 +1,5 @@
+mod course_review;
+
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::Duration;
@@ -202,7 +204,7 @@ impl App {
     /// relearn-reset. Skipped when a mistakes session is up — that flow
     /// wins, since the user explicitly has review work pending.
     fn maybe_open_course_list_at_startup(&mut self) {
-        if !matches!(self.study.mode(), StudyMode::Course) {
+        if !matches!(self.study.mode(), StudyMode::Course) || self.course_review_pending() {
             return;
         }
         use crate::storage::progress::{course_full_stats, course_stats, OVER_LEARNED_THRESHOLD};
@@ -235,10 +237,12 @@ impl App {
             // the whole queue and leave us in Course mode.
             if matches!(self.study.mode(), StudyMode::Mistakes) {
                 self.mistakes_session_auto_launched = true;
+                self.screen = Screen::Study;
             }
         }
         self.mark_mistakes_dirty();
         self.flush_all_now();
+        self.start_course_review();
     }
 
     /// True iff the local date has changed since the last call. Latches —
@@ -361,6 +365,17 @@ impl App {
         let progress_clone = self.study.progress().clone();
         self.study =
             StudyState::new_for_mistakes(Some(course), progress_clone, sentence_idx, drill_idx);
+        if let Some(progress) = self.mistakes.session_progress() {
+            tracing::info!(
+                round = progress.round,
+                index = progress.index + 1,
+                total = progress.total,
+                course_id = %drill_ref.course_id,
+                sentence_order = drill_ref.sentence_order,
+                drill_stage = drill_ref.drill_stage,
+                "review drill loaded"
+            );
+        }
         self.spawn_bundle_prewarm();
         self.speak_current_drill();
     }
@@ -607,8 +622,16 @@ impl App {
     }
 
     pub fn open_course_list(&mut self) {
+        if self.course_review_pending() {
+            self.show_course_review_required();
+            return;
+        }
         use crate::storage::course::list_courses;
         use crate::ui::course_list::CourseListState;
+        tracing::info!(
+            review_pending = self.mistakes.session_progress().is_some(),
+            "course list opened"
+        );
         // Silence any in-flight audio: the list overlay has no current drill
         // and a previously-spawned bundle/TTS task would otherwise keep
         // playing under it. Critical at startup, where mistakes-session
@@ -624,6 +647,11 @@ impl App {
     fn switch_to_course(&mut self, new_id: String) {
         use crate::storage::course::load_course;
         use crate::storage::progress::{course_full_stats, course_stats, OVER_LEARNED_THRESHOLD};
+        tracing::info!(
+            course_id = %new_id,
+            review_pending = self.mistakes.session_progress().is_some(),
+            "course selected"
+        );
         // Flush any pending writes before switching so a crash during course
         // load can't lose the previous course's last answers.
         self.flush_all_now();
@@ -687,7 +715,7 @@ impl App {
         // Long-running session crossed local midnight: replay the mistakes
         // auto-launch chain so today's review still pops, matching what a
         // fresh launch would have done.
-        if self.day_has_rolled_over() {
+        if matches!(self.screen, Screen::Study | Screen::CourseList) && self.day_has_rolled_over() {
             self.startup_apply_mistakes_session();
         }
         // Auto-advance after a correct answer (0.5s linger).
@@ -728,19 +756,24 @@ impl App {
             if !self.study.is_advance_due(now) {
                 return;
             }
-            self.mistakes.advance_session();
-            self.mark_mistakes_dirty();
-            if self.mistakes.peek_current_drill().is_some() {
-                self.enter_mistakes_mode_at_current_drill();
-                self.speak_current_drill();
-            } else {
-                self.finish_mistakes_session();
-            }
+            self.advance_mistakes_drill();
         } else {
             if self.study.auto_advance_if_due(now) {
                 self.mark_progress_dirty();
-                self.speak_current_drill();
+                if !self.finish_course_review_if_complete() {
+                    self.speak_current_drill();
+                }
             }
+        }
+    }
+
+    fn advance_mistakes_drill(&mut self) {
+        self.mistakes.advance_session();
+        self.mark_mistakes_dirty();
+        if self.mistakes.peek_current_drill().is_some() {
+            self.enter_mistakes_mode_at_current_drill();
+        } else {
+            self.finish_mistakes_session();
         }
     }
 
@@ -755,7 +788,11 @@ impl App {
         self.flush_all_now();
         self.set_toast(MISTAKES_DONE_BANNER.into());
         let was_auto = std::mem::replace(&mut self.mistakes_session_auto_launched, false);
+        tracing::info!(auto_launched = was_auto, "review session completed");
         self.enter_course_mode();
+        if self.start_course_review() {
+            return;
+        }
         if was_auto {
             // `open_course_list` already cancels Speaker + BundlePlayer, so
             // skip `speak_current_drill` — speaking the active course's
@@ -958,6 +995,9 @@ impl App {
 
     fn submit_current_input(&mut self) {
         let (outcome, tick) = self.study.submit(self.clock.as_ref());
+        if self.course_review_pending() {
+            self.mark_progress_dirty();
+        }
         if let Some(o) = outcome {
             self.handle_submit_outcome(o);
         }
@@ -1003,20 +1043,32 @@ impl App {
         if key.code == KeyCode::Esc
             && matches!(self.study.mode(), crate::ui::study::StudyMode::Mistakes)
         {
-            // Park session as-is and drop back to course mode. Next launch /
-            // /mistakes resumes from session.next_index.
-            self.mark_mistakes_dirty();
-            self.flush_all_now();
-            self.set_toast("Review paused (resume with /mistakes)".into());
-            self.enter_course_mode();
-            self.speak_current_drill();
+            if let Some(progress) = self.mistakes.session_progress() {
+                tracing::info!(
+                    round = progress.round,
+                    index = progress.index + 1,
+                    total = progress.total,
+                    "ignored Esc during active review"
+                );
+            }
+            self.set_toast("Review continues · Ctrl+P → /list to switch course".into());
+            return;
+        }
+        if self.course_review_pending() && key.code == KeyCode::Tab {
+            self.show_course_review_required();
             return;
         }
         match self.study.feedback() {
             FeedbackState::Correct => {
+                if matches!(self.study.mode(), StudyMode::Mistakes) {
+                    self.advance_mistakes_drill();
+                    return;
+                }
                 self.mark_progress_dirty();
                 self.study.advance();
-                self.speak_current_drill();
+                if !self.finish_course_review_if_complete() {
+                    self.speak_current_drill();
+                }
             }
             FeedbackState::Wrong => {
                 // Any key press clears input and restarts
@@ -1026,7 +1078,7 @@ impl App {
             FeedbackState::Typing => match key.code {
                 KeyCode::Char(c) => {
                     self.study.type_char(c);
-                    // Filled the skeleton — submit without waiting for Enter.
+                    // A filled answer submits without waiting for Enter.
                     if self.study.is_input_at_target() {
                         self.submit_current_input();
                     }
@@ -1042,14 +1094,7 @@ impl App {
                 KeyCode::Tab => {
                     if matches!(self.study.mode(), crate::ui::study::StudyMode::Mistakes) {
                         // Skip in mistakes mode: advance via session queue, no verdict recorded.
-                        self.mistakes.advance_session();
-                        self.mark_mistakes_dirty();
-                        if self.mistakes.peek_current_drill().is_some() {
-                            self.enter_mistakes_mode_at_current_drill();
-                            self.speak_current_drill();
-                        } else {
-                            self.finish_mistakes_session();
-                        }
+                        self.advance_mistakes_drill();
                     } else {
                         self.study.skip();
                         self.mark_progress_dirty();
@@ -1321,6 +1366,11 @@ impl App {
     }
 
     fn execute_command(&mut self, cmd: &Command, args: &[String]) {
+        if self.course_review_pending() && matches!(cmd.name, "skip" | "list" | "import" | "delete")
+        {
+            self.show_course_review_required();
+            return;
+        }
         match cmd.name {
             "quit" | "q" => self.quit(),
             "skip" => {
@@ -1498,9 +1548,39 @@ impl App {
         } else {
             None
         };
-        let status_line = crate::ui::shell_chrome::build_status_line_with_mistakes(
-            area.width, course_id, summary, badge,
+        let review_label = self
+            .study
+            .progress()
+            .course_review
+            .as_ref()
+            .filter(|_| {
+                matches!(self.study.mode(), StudyMode::Course) && self.course_review_pending()
+            })
+            .map(|review| {
+                format!(
+                    "Daily review {}/{} · ",
+                    review.next_index + 1,
+                    review.queue.len()
+                )
+            });
+        let label_width = review_label
+            .as_ref()
+            .map_or(0, |label| label.chars().count() as u16);
+        let mut status_line = crate::ui::shell_chrome::build_status_line_with_mistakes(
+            area.width.saturating_sub(label_width),
+            course_id,
+            summary,
+            badge,
         );
+        if let Some(label) = review_label {
+            status_line.spans.insert(
+                0,
+                ratatui::text::Span::styled(
+                    label,
+                    ratatui::style::Style::default().fg(ratatui::style::Color::Yellow),
+                ),
+            );
+        }
         frame.render_widget(ratatui::widgets::Paragraph::new(status_line), status_area);
 
         inner
@@ -2956,6 +3036,32 @@ mod mistakes_finish_routing_tests {
         assert!(
             !app.mistakes_session_auto_launched,
             "flag must reset after finish so the next /mistakes call isn't sticky"
+        );
+    }
+
+    #[test]
+    fn escape_does_not_pause_an_in_progress_review() {
+        let now = Utc.with_ymd_and_hms(2026, 5, 21, 9, 0, 0).unwrap();
+        let today = now.date_naive();
+        let course = minimal_course();
+        let book = book_with_one_drill(drill_ref(&course), today);
+        let mut app = build_app(course, book, now);
+        let progress_before = app.mistakes.session_progress();
+
+        app.handle_study_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+        assert!(
+            matches!(app.study.mode(), StudyMode::Mistakes),
+            "a bare Esc must not leave an unfinished review"
+        );
+        assert_eq!(
+            app.mistakes.session_progress(),
+            progress_before,
+            "a bare Esc must not move the review cursor"
+        );
+        assert_eq!(
+            app.info_banner.as_deref(),
+            Some("Review continues · Ctrl+P → /list to switch course")
         );
     }
 

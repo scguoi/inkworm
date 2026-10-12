@@ -4,7 +4,7 @@
 //! Derived fields (`total_drills`, `completed_drills`) are computed on demand
 //! from the current Course + Progress, never persisted.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -29,6 +29,29 @@ pub struct Progress {
     pub active_course_id: Option<String>,
     #[serde(default)]
     pub courses: BTreeMap<String, CourseProgress>,
+    #[serde(
+        rename = "courseReview",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub course_review: Option<CourseReview>,
+}
+
+/// A daily snapshot survives restart and partial answers changing lastStudiedAt.
+/// Keep unfinished batches across dates; completing one satisfies that day.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CourseReview {
+    pub date: NaiveDate,
+    pub queue: Vec<String>,
+    pub next_index: usize,
+    pub current_started: bool,
+}
+
+impl CourseReview {
+    pub fn current_id(&self) -> Option<&str> {
+        self.queue.get(self.next_index).map(String::as_str)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -72,6 +95,7 @@ impl Progress {
             schema_version: PROGRESS_SCHEMA_VERSION,
             active_course_id: None,
             courses: BTreeMap::new(),
+            course_review: None,
         }
     }
 

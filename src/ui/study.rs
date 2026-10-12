@@ -254,10 +254,9 @@ impl StudyState {
         self.input.pop();
     }
 
-    /// True iff the normalized input has reached (or overshot) the normalized
-    /// target's char count while still in the Typing phase. The caller uses
-    /// this to auto-submit without an explicit Enter once every significant
-    /// position in the skeleton has been filled.
+    /// True iff the normalized input has filled or overshot the normalized
+    /// target while still in the Typing phase. Normalization keeps accepted
+    /// punctuation variants from shifting the completion boundary.
     pub fn is_input_at_target(&self) -> bool {
         if self.phase != StudyPhase::Active {
             return false;
@@ -815,21 +814,62 @@ mod tests {
     }
 
     #[test]
-    fn is_input_at_target_tracks_char_count() {
-        // Fixture target = "AI think day" (12 chars).
-        let mut state = StudyState::new(Some(fixture_course()), Progress::empty());
-        assert!(!state.is_input_at_target());
-        for c in "AI think".chars() {
-            state.type_char(c);
+    fn is_input_at_target_follows_auto_submit_matrix() {
+        const CASES: &[(&str, &str, &str, bool)] = &[
+            ("empty input", "AI think day", "", false),
+            ("incomplete plain answer", "AI think day", "AI think", false),
+            (
+                "complete correct answer",
+                "AI think day",
+                "AI think day",
+                true,
+            ),
+            (
+                "complete wrong answer",
+                "The open and free society has a general equal rule for all.",
+                "the open and free society has a qeneral equal rule for all.",
+                true,
+            ),
+            (
+                "significant overflow",
+                "AI think day",
+                "AI think dayx",
+                true,
+            ),
+            (
+                "incomplete ASCII dash substitute",
+                "Such a waste — he did not even attempt to help or change till the last week.",
+                "Such a waste - he did not even attempt to help or change till the last we",
+                false,
+            ),
+            (
+                "complete ASCII dash substitute",
+                "Such a waste — he did not even attempt to help or change till the last week.",
+                "Such a waste - he did not even attempt to help or change till the last week",
+                true,
+            ),
+            (
+                "complete omitted Unicode punctuation",
+                "The answer is simple — clear, short, and useful.",
+                "The answer is simple clear, short, and useful",
+                true,
+            ),
+        ];
+
+        for &(name, target, input, expected) in CASES {
+            let mut course = fixture_course();
+            course.sentences[0].drills[0].english = target.into();
+            let mut state = StudyState::new(Some(course), Progress::empty());
+            for c in input.chars() {
+                state.type_char(c);
+            }
+
+            assert_eq!(
+                state.is_input_at_target(),
+                expected,
+                "auto-submit case: {name}"
+            );
         }
-        assert!(!state.is_input_at_target(), "8 chars < 12-char target");
-        for c in " day".chars() {
-            state.type_char(c);
-        }
-        assert!(state.is_input_at_target(), "12 chars == 12-char target");
-        // Overshoot keeps it true so paste-style overflow still triggers.
-        state.type_char('!');
-        assert!(state.is_input_at_target());
     }
 
     #[test]
@@ -841,6 +881,31 @@ mod tests {
         let mut state = StudyState::new(Some(course), Progress::empty());
 
         for c in "The answer is simple clear, short, and useful".chars() {
+            state.type_char(c);
+        }
+
+        assert!(state.is_input_at_target());
+        state.submit(&clk);
+        assert_eq!(*state.feedback(), FeedbackState::Correct);
+    }
+
+    #[test]
+    fn ascii_dash_auto_submits_only_after_answer_is_complete() {
+        let clk = clock();
+        let mut course = fixture_course();
+        course.sentences[0].drills[0].english =
+            "Such a waste — he did not even attempt to help or change till the last week.".into();
+        let mut state = StudyState::new(Some(course), Progress::empty());
+
+        for c in "Such a waste - he did not even attempt to help or change till the last we".chars()
+        {
+            state.type_char(c);
+        }
+
+        assert!(!state.is_input_at_target());
+        assert_eq!(*state.feedback(), FeedbackState::Typing);
+
+        for c in "ek".chars() {
             state.type_char(c);
         }
 

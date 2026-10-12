@@ -99,6 +99,7 @@ fn tab_switches_course_list_from_active_to_mastered_view() {
 
     let mut progress = Progress::empty();
     progress.course_mut("2026-04-10-course-a").completion_count = OVER_LEARNED_THRESHOLD;
+    progress.course_mut("2026-04-10-course-a").last_studied_at = chrono::Utc::now();
     let mut app = make_app(paths, progress);
 
     app.open_course_list();
@@ -128,13 +129,10 @@ fn arrow_keys_wrap_within_mastered_view() {
     seed_two_courses(&paths);
 
     let mut progress = Progress::empty();
-    for (id, studied_at) in [
-        ("2026-04-10-course-a", "2026-04-01T00:00:00Z"),
-        ("2026-04-20-course-b", "2026-04-02T00:00:00Z"),
-    ] {
+    for (id, days_ago) in [("2026-04-10-course-a", 2), ("2026-04-20-course-b", 1)] {
         let cp = progress.course_mut(id);
         cp.completion_count = OVER_LEARNED_THRESHOLD;
-        cp.last_studied_at = studied_at.parse().unwrap();
+        cp.last_studied_at = chrono::Utc::now() - chrono::Duration::days(days_ago);
     }
     let mut app = make_app(paths, progress);
     app.open_course_list();
@@ -211,6 +209,7 @@ async fn over_learned_relearn_confirms_then_starts_full_only_review() {
     progress.active_course_id = Some(course.id.clone());
     let cp = progress.course_mut(&course.id);
     cp.completion_count = OVER_LEARNED_THRESHOLD;
+    cp.last_studied_at = chrono::Utc::now();
     for sentence in &course.sentences {
         let sp = cp.sentences.entry(sentence.order.to_string()).or_default();
         for drill in &sentence.drills {
