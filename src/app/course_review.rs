@@ -34,42 +34,7 @@ impl App {
         {
             return false;
         }
-        let today = self.clock.today_local();
-        let review = self.study.progress().course_review.as_ref();
-        if !self.course_review_pending() {
-            if review.is_some_and(|r| r.date == today) {
-                return false;
-            }
-            let cutoff = self.clock.now() - chrono::Duration::days(30);
-            let Ok(metas) = list_courses(&self.data_paths.courses_dir) else {
-                return false;
-            };
-            let mut candidates: Vec<_> = metas
-                .into_iter()
-                .filter_map(|meta| {
-                    let cp = self.study.progress().course(&meta.id)?;
-                    (cp.completion_count >= OVER_LEARNED_THRESHOLD && cp.last_studied_at < cutoff)
-                        .then_some((cp.last_studied_at, meta.id))
-                })
-                .collect();
-            candidates.sort();
-            let queue: Vec<_> = candidates
-                .into_iter()
-                .filter(|(_, id)| self.load_course_owned(id).is_some())
-                .take(3)
-                .map(|(_, id)| id)
-                .collect();
-            if queue.is_empty() {
-                return false;
-            }
-            self.study.progress_mut().course_review = Some(CourseReview {
-                date: today,
-                queue,
-                next_index: 0,
-                current_started: false,
-            });
-            self.mark_progress_dirty();
-        }
+        self.prepare_course_review();
 
         while let Some((id, started)) = self
             .study
@@ -80,7 +45,8 @@ impl App {
         {
             let Some(course) = self.load_course_owned(&id) else {
                 // Deleted or corrupt courses must not trap the user in review.
-                self.advance_course_review_cursor();
+                self.advance_course_review_cursor(false);
+                self.prepare_course_review();
                 continue;
             };
             if !started {
@@ -97,7 +63,8 @@ impl App {
                     // Restart after the last correct answer, before its advance tick.
                     let cp = self.study.progress_mut().course_mut(&id);
                     cp.completion_count = cp.completion_count.saturating_add(1);
-                    self.advance_course_review_cursor();
+                    self.advance_course_review_cursor(true);
+                    self.prepare_course_review();
                     continue;
                 }
             }
@@ -117,13 +84,115 @@ impl App {
         false
     }
 
-    fn advance_course_review_cursor(&mut self) {
+    fn normalize_course_review_date(&mut self) {
         let today = self.clock.today_local();
+        let progress = self.study.progress_mut();
+        let Some(review) = progress.course_review.as_mut() else {
+            return;
+        };
+        if review.date == today && review.completed_today.is_some() {
+            return;
+        }
+        if review.completed_today.is_none() {
+            // Recover legacy batches, including batches completed across two days.
+            review.completed_today = Some(
+                review
+                    .queue
+                    .iter()
+                    .take(review.next_index)
+                    .filter(|id| {
+                        progress.courses.get(*id).is_some_and(|cp| {
+                            cp.last_studied_at
+                                .with_timezone(&chrono::Local)
+                                .date_naive()
+                                == today
+                        })
+                    })
+                    .count(),
+            );
+        } else if review.date != today {
+            review.completed_today = Some(0);
+        }
+        if review.date != today {
+            review.queue.drain(..review.next_index);
+            review.next_index = 0;
+            review.date = today;
+        }
+        self.mark_progress_dirty();
+    }
+
+    fn prepare_course_review(&mut self) {
+        self.normalize_course_review_date();
+        let review = self.study.progress().course_review.as_ref();
+        let completed = review.and_then(|r| r.completed_today).unwrap_or(0);
+        let pending = review.map_or(0, |r| r.queue.len() - r.next_index);
+        let needed = 3usize.saturating_sub(completed + pending);
+        if needed == 0 {
+            return;
+        }
+        let cutoff = self.clock.now() - chrono::Duration::days(30);
+        let Ok(metas) = list_courses(&self.data_paths.courses_dir) else {
+            return;
+        };
+        let mut candidates: Vec<_> = metas
+            .into_iter()
+            .filter_map(|meta| {
+                let cp = self.study.progress().course(&meta.id)?;
+                (cp.completion_count >= OVER_LEARNED_THRESHOLD
+                    && cp.last_studied_at < cutoff
+                    && !review.is_some_and(|r| r.queue.contains(&meta.id)))
+                .then_some((cp.last_studied_at, meta.id))
+            })
+            .collect();
+        candidates.sort();
+        let additions: Vec<_> = candidates
+            .into_iter()
+            .filter(|(_, id)| self.load_course_owned(id).is_some())
+            .take(needed)
+            .map(|(_, id)| id)
+            .collect();
+        if additions.is_empty() {
+            return;
+        }
+        let today = self.clock.today_local();
+        let review = self
+            .study
+            .progress_mut()
+            .course_review
+            .get_or_insert_with(|| CourseReview {
+                date: today,
+                queue: Vec::new(),
+                next_index: 0,
+                current_started: false,
+                completed_today: Some(0),
+            });
+        review.queue.extend(additions);
+        self.mark_progress_dirty();
+    }
+
+    fn advance_course_review_cursor(&mut self, completed: bool) {
+        self.normalize_course_review_date();
+        let today = self.clock.today_local();
+        let completed_today = completed
+            && self
+                .study
+                .progress()
+                .course_review
+                .as_ref()
+                .and_then(CourseReview::current_id)
+                .and_then(|id| self.study.progress().course(id))
+                .is_some_and(|cp| {
+                    cp.last_studied_at
+                        .with_timezone(&chrono::Local)
+                        .date_naive()
+                        == today
+                });
         if let Some(review) = self.study.progress_mut().course_review.as_mut() {
             review.next_index += 1;
             review.current_started = false;
-            // Finishing a carried-over batch also satisfies today's quota.
-            review.date = today;
+            if completed_today {
+                *review.completed_today.get_or_insert(0) += 1;
+            }
         }
         self.mark_progress_dirty();
     }
@@ -132,7 +201,7 @@ impl App {
         if !self.in_course_review() || !matches!(self.study.phase(), StudyPhase::Complete) {
             return false;
         }
-        self.advance_course_review_cursor();
+        self.advance_course_review_cursor(true);
         if !self.start_course_review() {
             self.flush_all_now();
             self.set_toast("Daily course review complete ✓".into());

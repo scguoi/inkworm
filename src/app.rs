@@ -1559,8 +1559,8 @@ impl App {
             .map(|review| {
                 format!(
                     "Daily review {}/{} · ",
-                    review.next_index + 1,
-                    review.queue.len()
+                    review.completed_today.unwrap_or(0) + 1,
+                    review.completed_today.unwrap_or(0) + review.queue.len() - review.next_index
                 )
             });
         let label_width = review_label

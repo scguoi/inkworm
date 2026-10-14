@@ -312,7 +312,7 @@ fn missing_queued_course_does_not_block_remaining_course() {
 }
 
 #[test]
-fn overdue_batch_survives_midnight_mistakes_and_finishes_without_extra_batch() {
+fn carried_course_survives_midnight_mistakes_with_no_more_candidates() {
     let h = Harness::new();
     let mut p = Progress::empty();
     let course = h.seed(&mut p, "first", Duration::days(50), 4);
@@ -402,4 +402,164 @@ fn status_bar_shows_daily_course_position() {
         .map(|cell| cell.symbol())
         .collect();
     assert!(content.contains("Daily review 1/1"));
+}
+
+#[test]
+fn carried_course_counts_today_and_two_more_are_added_across_restart() {
+    let h = Harness::new();
+    let mut p = Progress::empty();
+    for (name, age) in [
+        ("a", 80),
+        ("b", 70),
+        ("c", 60),
+        ("d", 50),
+        ("e", 40),
+        ("f", 35),
+    ] {
+        h.seed(&mut p, name, Duration::days(age), 4);
+    }
+    let mut app = h.app(p, MistakeBook::empty());
+    finish_course(&mut app);
+    finish_course(&mut app);
+    answer(&mut app);
+    key(&mut app, KeyCode::Enter);
+    command(&mut app, "/quit");
+    h.elapse(Duration::days(1));
+    let mut app = h.app(h.reload(), MistakeBook::empty());
+    assert_eq!(app.study.current_sentence().unwrap().order, 2);
+    let review = app.study.progress().course_review.as_ref().unwrap();
+    assert_eq!(review.completed_today, Some(0));
+    assert_eq!(
+        review.queue,
+        ["2026-04-21-c", "2026-04-21-d", "2026-04-21-e"]
+    );
+    let remaining = app.study.current_course().unwrap().sentences.len() - 1;
+    for _ in 0..remaining {
+        answer(&mut app);
+        key(&mut app, KeyCode::Enter);
+    }
+    assert_eq!(
+        app.study
+            .progress()
+            .course_review
+            .as_ref()
+            .unwrap()
+            .completed_today,
+        Some(1)
+    );
+    command(&mut app, "/quit");
+    let mut app = h.app(h.reload(), MistakeBook::empty());
+    for name in ["d", "e"] {
+        assert_eq!(
+            app.study.current_course().unwrap().id,
+            format!("2026-04-21-{name}")
+        );
+        finish_course(&mut app);
+    }
+    assert!(matches!(app.screen, Screen::CourseList));
+    assert_eq!(h.reload().course_review.unwrap().completed_today, Some(3));
+    let app = h.app(h.reload(), MistakeBook::empty());
+    assert!(app
+        .study
+        .progress()
+        .course_review
+        .as_ref()
+        .unwrap()
+        .current_id()
+        .is_none());
+}
+
+#[test]
+fn legacy_completed_batch_recovers_only_today_and_tops_up_available_courses() {
+    let h = Harness::new();
+    let mut p = Progress::empty();
+    for (name, age) in [("a", 80), ("b", 70), ("c", 60), ("d", 50)] {
+        h.seed(&mut p, name, Duration::days(age), 4);
+    }
+    let mut app = h.app(p, MistakeBook::empty());
+    for _ in 0..3 {
+        finish_course(&mut app);
+    }
+    let mut legacy = serde_json::to_value(h.reload()).unwrap();
+    legacy["courseReview"]
+        .as_object_mut()
+        .unwrap()
+        .remove("completedToday");
+    let mut p: Progress = serde_json::from_value(legacy).unwrap();
+    for name in ["a", "b"] {
+        p.course_mut(&format!("2026-04-21-{name}")).last_studied_at -= Duration::days(1);
+    }
+    let mut app = h.app(p, MistakeBook::empty());
+    assert_eq!(app.study.current_course().unwrap().id, "2026-04-21-d");
+    assert_eq!(
+        app.study
+            .progress()
+            .course_review
+            .as_ref()
+            .unwrap()
+            .completed_today,
+        Some(1)
+    );
+    finish_course(&mut app);
+    assert!(matches!(app.screen, Screen::CourseList));
+    assert_eq!(h.reload().course_review.unwrap().completed_today, Some(2));
+}
+
+#[test]
+fn missing_course_is_replaced_without_counting_as_completed() {
+    let h = Harness::new();
+    let mut p = Progress::empty();
+    for (name, age) in [("a", 80), ("b", 70), ("c", 60), ("d", 50)] {
+        h.seed(&mut p, name, Duration::days(age), 4);
+    }
+    let _app = h.app(p, MistakeBook::empty());
+    inkworm::storage::course::delete_course(&h.paths.courses_dir, "2026-04-21-a").unwrap();
+    let mut app = h.app(h.reload(), MistakeBook::empty());
+    for name in ["b", "c", "d"] {
+        assert_eq!(
+            app.study.current_course().unwrap().id,
+            format!("2026-04-21-{name}")
+        );
+        finish_course(&mut app);
+    }
+    assert_eq!(h.reload().course_review.unwrap().completed_today, Some(3));
+    assert!(matches!(app.screen, Screen::CourseList));
+}
+
+#[test]
+fn last_answer_yesterday_is_not_counted_today_when_resuming_before_advance() {
+    let h = Harness::new();
+    let mut p = Progress::empty();
+    let first = h.seed(&mut p, "a", Duration::days(80), 4);
+    for (name, age) in [("b", 70), ("c", 60), ("d", 50)] {
+        h.seed(&mut p, name, Duration::days(age), 4);
+    }
+    let mut app = h.app(p, MistakeBook::empty());
+    for _ in 1..first.sentences.len() {
+        answer(&mut app);
+        key(&mut app, KeyCode::Enter);
+    }
+    answer(&mut app);
+    command(&mut app, "/quit");
+    h.elapse(Duration::days(1));
+    let mut app = h.app(h.reload(), MistakeBook::empty());
+    assert_eq!(
+        app.study
+            .progress()
+            .course_review
+            .as_ref()
+            .unwrap()
+            .completed_today,
+        Some(0)
+    );
+    for name in ["b", "c", "d"] {
+        assert_eq!(
+            app.study.current_course().unwrap().id,
+            format!("2026-04-21-{name}")
+        );
+        finish_course(&mut app);
+    }
+    assert_eq!(h.reload().course(&first.id).unwrap().completion_count, 5);
+    assert_eq!(h.reload().course_review.unwrap().completed_today, Some(3));
+    assert!(matches!(app.screen, Screen::CourseList));
 }

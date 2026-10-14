@@ -38,7 +38,7 @@ pub struct Progress {
 }
 
 /// A daily snapshot survives restart and partial answers changing lastStudiedAt.
-/// Keep unfinished batches across dates; completing one satisfies that day.
+/// Unfinished courses carry over; only completions on `date` count toward its quota.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CourseReview {
@@ -46,6 +46,9 @@ pub struct CourseReview {
     pub queue: Vec<String>,
     pub next_index: usize,
     pub current_started: bool,
+    /// None identifies legacy batches whose daily count must be recovered.
+    #[serde(default)]
+    pub completed_today: Option<usize>,
 }
 
 impl CourseReview {
